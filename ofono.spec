@@ -13,6 +13,7 @@ BuildRequires: pkgconfig(libudev) >= 145
 BuildRequires: pkgconfig(bluez)
 BuildRequires: pkgconfig(libusb-1.0)
 BuildRequires: pkgconfig(mobile-broadband-provider-info)
+BuildRequires: pkgconfig(systemd)
 BuildRequires: systemd
 Requires(post): systemd
 Requires(preun): systemd
