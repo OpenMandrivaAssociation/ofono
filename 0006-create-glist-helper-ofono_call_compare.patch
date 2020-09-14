@@ -1,0 +1,192 @@
+diff -up ofono-1.31/drivers/atmodem/atutil.c.4~ ofono-1.31/drivers/atmodem/atutil.c
+--- ofono-1.31/drivers/atmodem/atutil.c.4~	2020-09-14 19:11:51.196164922 +0200
++++ ofono-1.31/drivers/atmodem/atutil.c	2020-09-14 19:12:46.849589207 +0200
+@@ -35,6 +35,7 @@
+ #include <ofono/log.h>
+ #include <ofono/types.h>
+ #include <ofono/modem.h>
++#include "../src/common.h"
+ 
+ #include "atutil.h"
+ #include "vendor.h"
+@@ -80,20 +81,6 @@ gint at_util_call_compare_by_phone_numbe
+ 				sizeof(struct ofono_phone_number));
+ }
+ 
+-gint at_util_call_compare(gconstpointer a, gconstpointer b)
+-{
+-	const struct ofono_call *ca = a;
+-	const struct ofono_call *cb = b;
+-
+-	if (ca->id < cb->id)
+-		return -1;
+-
+-	if (ca->id > cb->id)
+-		return 1;
+-
+-	return 0;
+-}
+-
+ GSList *at_util_parse_clcc(GAtResult *result, unsigned int *ret_mpty_ids)
+ {
+ 	GAtResultIter iter;
+@@ -152,7 +139,7 @@ GSList *at_util_parse_clcc(GAtResult *re
+ 		else
+ 			call->clip_validity = 2;
+ 
+-		l = g_slist_insert_sorted(l, call, at_util_call_compare);
++		l = g_slist_insert_sorted(l, call, ofono_call_compare);
+ 
+ 		if (mpty)
+ 			mpty_ids |= 1 << id;
+diff -up ofono-1.31/drivers/atmodem/atutil.h.4~ ofono-1.31/drivers/atmodem/atutil.h
+--- ofono-1.31/drivers/atmodem/atutil.h.4~	2020-09-14 19:11:51.197164929 +0200
++++ ofono-1.31/drivers/atmodem/atutil.h	2020-09-14 19:13:04.579722976 +0200
+@@ -59,7 +59,6 @@ void decode_at_error(struct ofono_error
+ gint ofono_call_compare_by_status(gconstpointer a, gconstpointer b);
+ gint at_util_call_compare_by_phone_number(gconstpointer a, gconstpointer b);
+ gint ofono_call_compare_by_id(gconstpointer a, gconstpointer b);
+-gint at_util_call_compare(gconstpointer a, gconstpointer b);
+ GSList *at_util_parse_clcc(GAtResult *result, unsigned int *mpty_ids);
+ gboolean at_util_parse_reg(GAtResult *result, const char *prefix,
+ 				int *mode, int *status,
+diff -up ofono-1.31/drivers/atmodem/voicecall.c.4~ ofono-1.31/drivers/atmodem/voicecall.c
+--- ofono-1.31/drivers/atmodem/voicecall.c.4~	2020-09-14 19:11:51.195164914 +0200
++++ ofono-1.31/drivers/atmodem/voicecall.c	2020-09-14 19:11:51.197164929 +0200
+@@ -131,7 +131,7 @@ static struct ofono_call *create_call(st
+ 	call->clip_validity = clip;
+ 	call->cnap_validity = CNAP_VALIDITY_NOT_AVAILABLE;
+ 
+-	d->calls = g_slist_insert_sorted(d->calls, call, at_util_call_compare);
++	d->calls = g_slist_insert_sorted(d->calls, call, ofono_call_compare);
+ 
+ 	return call;
+ }
+diff -up ofono-1.31/drivers/hfpmodem/voicecall.c.4~ ofono-1.31/drivers/hfpmodem/voicecall.c
+--- ofono-1.31/drivers/hfpmodem/voicecall.c.4~	2020-09-14 19:11:51.195164914 +0200
++++ ofono-1.31/drivers/hfpmodem/voicecall.c	2020-09-14 19:11:51.197164929 +0200
+@@ -128,7 +128,7 @@ static struct ofono_call *create_call(st
+ 		call->phone_number.type = num_type;
+ 	}
+ 
+-	d->calls = g_slist_insert_sorted(d->calls, call, at_util_call_compare);
++	d->calls = g_slist_insert_sorted(d->calls, call, ofono_call_compare);
+ 
+ 	call->clip_validity = clip;
+ 
+diff -up ofono-1.31/drivers/huaweimodem/voicecall.c.4~ ofono-1.31/drivers/huaweimodem/voicecall.c
+--- ofono-1.31/drivers/huaweimodem/voicecall.c.4~	2020-09-14 19:11:51.196164922 +0200
++++ ofono-1.31/drivers/huaweimodem/voicecall.c	2020-09-14 19:11:51.197164929 +0200
+@@ -75,7 +75,7 @@ static struct ofono_call *create_call(st
+ 
+ 	call->clip_validity = clip;
+ 
+-	d->calls = g_slist_insert_sorted(d->calls, call, at_util_call_compare);
++	d->calls = g_slist_insert_sorted(d->calls, call, ofono_call_compare);
+ 
+ 	return call;
+ }
+diff -up ofono-1.31/drivers/ifxmodem/voicecall.c.4~ ofono-1.31/drivers/ifxmodem/voicecall.c
+--- ofono-1.31/drivers/ifxmodem/voicecall.c.4~	2020-09-14 19:11:51.196164922 +0200
++++ ofono-1.31/drivers/ifxmodem/voicecall.c	2020-09-14 19:11:51.198164937 +0200
+@@ -106,7 +106,7 @@ static struct ofono_call *create_call(st
+ 
+ 	call->clip_validity = clip;
+ 
+-	d->calls = g_slist_insert_sorted(d->calls, call, at_util_call_compare);
++	d->calls = g_slist_insert_sorted(d->calls, call, ofono_call_compare);
+ 
+ 	return call;
+ }
+diff -up ofono-1.31/drivers/rilmodem/voicecall.c.4~ ofono-1.31/drivers/rilmodem/voicecall.c
+--- ofono-1.31/drivers/rilmodem/voicecall.c.4~	2019-10-31 08:58:24.000000000 +0100
++++ ofono-1.31/drivers/rilmodem/voicecall.c	2020-09-14 19:11:51.198164937 +0200
+@@ -116,20 +116,6 @@ done:
+ 	ofono_voicecall_disconnected(vc, reqdata->id, reason, NULL);
+ }
+ 
+-static int call_compare(gconstpointer a, gconstpointer b)
+-{
+-	const struct ofono_call *ca = a;
+-	const struct ofono_call *cb = b;
+-
+-	if (ca->id < cb->id)
+-		return -1;
+-
+-	if (ca->id > cb->id)
+-		return 1;
+-
+-	return 0;
+-}
+-
+ static void clcc_poll_cb(struct ril_msg *message, gpointer user_data)
+ {
+ 	struct ofono_voicecall *vc = user_data;
+@@ -208,7 +194,7 @@ static void clcc_poll_cb(struct ril_msg
+ 			call->id, call->status, call->type,
+ 			call->phone_number.number, call->name);
+ 
+-		calls = g_slist_insert_sorted(calls, call, call_compare);
++		calls = g_slist_insert_sorted(calls, call, ofono_call_compare);
+ 	}
+ 
+ no_calls:
+diff -up ofono-1.31/drivers/stemodem/voicecall.c.4~ ofono-1.31/drivers/stemodem/voicecall.c
+--- ofono-1.31/drivers/stemodem/voicecall.c.4~	2020-09-14 19:11:51.196164922 +0200
++++ ofono-1.31/drivers/stemodem/voicecall.c	2020-09-14 19:11:51.198164937 +0200
+@@ -127,7 +127,7 @@ static struct ofono_call *create_call(st
+ 
+ 	call->clip_validity = clip;
+ 
+-	d->calls = g_slist_insert_sorted(d->calls, call, at_util_call_compare);
++	d->calls = g_slist_insert_sorted(d->calls, call, ofono_call_compare);
+ 
+ 	return call;
+ }
+diff -up ofono-1.31/src/common.c.4~ ofono-1.31/src/common.c
+--- ofono-1.31/src/common.c.4~	2020-09-14 19:11:51.198164937 +0200
++++ ofono-1.31/src/common.c	2020-09-14 19:13:54.885099119 +0200
+@@ -752,6 +752,20 @@ void ofono_call_init(struct ofono_call *
+ 	call->clip_validity = CLIP_VALIDITY_NOT_AVAILABLE;
+ }
+ 
++gint ofono_call_compare(gconstpointer a, gconstpointer b)
++{
++	const struct ofono_call *ca = a;
++	const struct ofono_call *cb = b;
++
++	if (ca->id < cb->id)
++		return -1;
++
++	if (ca->id > cb->id)
++		return 1;
++
++	return 0;
++}
++
+ gint ofono_call_compare_by_status(gconstpointer a, gconstpointer b)
+ {
+ 	const struct ofono_call *call = a;
+diff -up ofono-1.31/src/common.h.4~ ofono-1.31/src/common.h
+--- ofono-1.31/src/common.h.4~	2020-09-14 19:11:51.198164937 +0200
++++ ofono-1.31/src/common.h	2020-09-14 19:14:19.614282289 +0200
+@@ -188,6 +188,7 @@ const char *registration_tech_to_string(
+ const char *packet_bearer_to_string(int bearer);
+ 
+ gboolean is_valid_apn(const char *apn);
++gint ofono_call_compare(gconstpointer a, gconstpointer b);
+ gint ofono_call_compare_by_status(gconstpointer a, gconstpointer b);
+ gint ofono_call_compare_by_id(gconstpointer a, gconstpointer b);
+ const char *call_status_to_string(enum call_status status);
+diff -up ofono-1.31/drivers/gemaltomodem/voicecall.c.omv~ ofono-1.31/drivers/gemaltomodem/voicecall.c
+--- ofono-1.31/drivers/gemaltomodem/voicecall.c.omv~	2020-09-14 19:20:34.461952814 +0200
++++ ofono-1.31/drivers/gemaltomodem/voicecall.c	2020-09-14 19:20:40.751996323 +0200
+@@ -363,7 +363,7 @@ static void gemalto_parse_slcc(GAtResult
+ 	else
+ 		call->clip_validity = 0;
+ 
+-	*l = g_slist_insert_sorted(*l, call, at_util_call_compare);
++	*l = g_slist_insert_sorted(*l, call, ofono_call_compare);
+ 
+ 	if (ret_mpty)
+ 		*ret_mpty = mpty;
