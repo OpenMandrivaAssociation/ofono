@@ -1,0 +1,2915 @@
+diff -urN ofono-1.20/acinclude.m4 ofono-1.20-patched/acinclude.m4
+--- ofono-1.20/acinclude.m4	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/acinclude.m4	2017-07-27 01:53:56.000000000 +0200
+@@ -22,6 +22,7 @@
+ 		CFLAGS="$CFLAGS -Wmissing-declarations"
+ 		CFLAGS="$CFLAGS -Wredundant-decls"
+ 		CFLAGS="$CFLAGS -Wcast-align"
++		CFLAGS="$CFLAGS -Wno-format-truncation"
+ 		CFLAGS="$CFLAGS -DG_DISABLE_DEPRECATED"
+ 	fi
+ ])
+diff -urN ofono-1.20/doc/cinterion-hardware-monitor-api.txt ofono-1.20-patched/doc/cinterion-hardware-monitor-api.txt
+--- ofono-1.20/doc/cinterion-hardware-monitor-api.txt	1970-01-01 01:00:00.000000000 +0100
++++ ofono-1.20-patched/doc/cinterion-hardware-monitor-api.txt	2017-07-27 01:53:56.000000000 +0200
+@@ -0,0 +1,16 @@
++
++HardwareMonitor hierarchy
++=========================
++
++Service		org.ofono
++Interface	org.ofono.cinterion.HardwareMonitor
++Object path	/{device0,device1,...}
++
++Methods		array{string,variant} GetStatistics
++
++			Returns an array of dict entries representing the
++			current temperature and supply voltage of the modem.
++
++			Units:
++			Temperature: Celsius
++			Voltage: mV
+diff -urN ofono-1.20/drivers/atmodem/atutil.c ofono-1.20-patched/drivers/atmodem/atutil.c
+--- ofono-1.20/drivers/atmodem/atutil.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/atmodem/atutil.c	2017-07-27 01:53:56.000000000 +0200
+@@ -31,6 +31,7 @@
+ #define OFONO_API_SUBJECT_TO_CHANGE
+ #include <ofono/log.h>
+ #include <ofono/types.h>
++#include "../src/common.h"
+ 
+ #include "atutil.h"
+ #include "vendor.h"
+@@ -67,17 +68,6 @@
+ 	}
+ }
+ 
+-gint at_util_call_compare_by_status(gconstpointer a, gconstpointer b)
+-{
+-	const struct ofono_call *call = a;
+-	int status = GPOINTER_TO_INT(b);
+-
+-	if (status != call->status)
+-		return 1;
+-
+-	return 0;
+-}
+-
+ gint at_util_call_compare_by_phone_number(gconstpointer a, gconstpointer b)
+ {
+ 	const struct ofono_call *call = a;
+@@ -87,34 +77,6 @@
+ 				sizeof(struct ofono_phone_number));
+ }
+ 
+-gint at_util_call_compare_by_id(gconstpointer a, gconstpointer b)
+-{
+-	const struct ofono_call *call = a;
+-	unsigned int id = GPOINTER_TO_UINT(b);
+-
+-	if (id < call->id)
+-		return -1;
+-
+-	if (id > call->id)
+-		return 1;
+-
+-	return 0;
+-}
+-
+-gint at_util_call_compare(gconstpointer a, gconstpointer b)
+-{
+-	const struct ofono_call *ca = a;
+-	const struct ofono_call *cb = b;
+-
+-	if (ca->id < cb->id)
+-		return -1;
+-
+-	if (ca->id > cb->id)
+-		return 1;
+-
+-	return 0;
+-}
+-
+ GSList *at_util_parse_clcc(GAtResult *result, unsigned int *ret_mpty_ids)
+ {
+ 	GAtResultIter iter;
+@@ -173,7 +135,7 @@
+ 		else
+ 			call->clip_validity = 2;
+ 
+-		l = g_slist_insert_sorted(l, call, at_util_call_compare);
++		l = g_slist_insert_sorted(l, call, ofono_call_compare);
+ 
+ 		if (mpty)
+ 			mpty_ids |= 1 << id;
+diff -urN ofono-1.20/drivers/atmodem/atutil.h ofono-1.20-patched/drivers/atmodem/atutil.h
+--- ofono-1.20/drivers/atmodem/atutil.h	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/atmodem/atutil.h	2017-07-27 01:53:56.000000000 +0200
+@@ -51,10 +51,9 @@
+ typedef void (*at_util_sim_inserted_cb_t)(gboolean present, void *userdata);
+ 
+ void decode_at_error(struct ofono_error *error, const char *final);
+-gint at_util_call_compare_by_status(gconstpointer a, gconstpointer b);
++gint ofono_call_compare_by_status(gconstpointer a, gconstpointer b);
+ gint at_util_call_compare_by_phone_number(gconstpointer a, gconstpointer b);
+-gint at_util_call_compare_by_id(gconstpointer a, gconstpointer b);
+-gint at_util_call_compare(gconstpointer a, gconstpointer b);
++gint ofono_call_compare_by_id(gconstpointer a, gconstpointer b);
+ GSList *at_util_parse_clcc(GAtResult *result, unsigned int *mpty_ids);
+ gboolean at_util_parse_reg(GAtResult *result, const char *prefix,
+ 				int *mode, int *status,
+diff -urN ofono-1.20/drivers/atmodem/gprs.c ofono-1.20-patched/drivers/atmodem/gprs.c
+--- ofono-1.20/drivers/atmodem/gprs.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/atmodem/gprs.c	2017-07-27 01:53:56.000000000 +0200
+@@ -445,6 +445,7 @@
+ 						FALSE, gprs, NULL);
+ 		g_at_chat_send(gd->chat, "AT#PSNT=1", none_prefix,
+ 						NULL, NULL, NULL);
++		break;
+ 	default:
+ 		g_at_chat_register(gd->chat, "+CPSB:", cpsb_notify,
+ 						FALSE, gprs, NULL);
+diff -urN ofono-1.20/drivers/atmodem/voicecall.c ofono-1.20-patched/drivers/atmodem/voicecall.c
+--- ofono-1.20/drivers/atmodem/voicecall.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/atmodem/voicecall.c	2017-07-27 01:53:56.000000000 +0200
+@@ -132,7 +132,7 @@
+ 	call->clip_validity = clip;
+ 	call->cnap_validity = CNAP_VALIDITY_NOT_AVAILABLE;
+ 
+-	d->calls = g_slist_insert_sorted(d->calls, call, at_util_call_compare);
++	d->calls = g_slist_insert_sorted(d->calls, call, ofono_call_compare);
+ 
+ 	return call;
+ }
+@@ -660,13 +660,13 @@
+ 	/* See comment in CRING */
+ 	if (g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_WAITING),
+-				at_util_call_compare_by_status))
++				ofono_call_compare_by_status))
+ 		return;
+ 
+ 	/* RING can repeat, ignore if we already have an incoming call */
+ 	if (g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_INCOMING),
+-				at_util_call_compare_by_status))
++				ofono_call_compare_by_status))
+ 		return;
+ 
+ 	/* Generate an incoming call of unknown type */
+@@ -698,13 +698,13 @@
+ 	 */
+ 	if (g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_WAITING),
+-				at_util_call_compare_by_status))
++				ofono_call_compare_by_status))
+ 		return;
+ 
+ 	/* CRING can repeat, ignore if we already have an incoming call */
+ 	if (g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_INCOMING),
+-				at_util_call_compare_by_status))
++				ofono_call_compare_by_status))
+ 		return;
+ 
+ 	g_at_result_iter_init(&iter, result);
+@@ -748,7 +748,7 @@
+ 
+ 	l = g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_INCOMING),
+-				at_util_call_compare_by_status);
++				ofono_call_compare_by_status);
+ 	if (l == NULL) {
+ 		ofono_error("CLIP for unknown call");
+ 		return;
+@@ -810,7 +810,7 @@
+ 
+ 	l = g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_INCOMING),
+-				at_util_call_compare_by_status);
++				ofono_call_compare_by_status);
+ 	if (l == NULL) {
+ 		ofono_error("CDIP for unknown call");
+ 		return;
+@@ -859,7 +859,7 @@
+ 
+ 	l = g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_INCOMING),
+-				at_util_call_compare_by_status);
++				ofono_call_compare_by_status);
+ 	if (l == NULL) {
+ 		ofono_error("CNAP for unknown call");
+ 		return;
+@@ -913,7 +913,7 @@
+ 	/* Some modems resend CCWA, ignore it the second time around */
+ 	if (g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_WAITING),
+-				at_util_call_compare_by_status))
++				ofono_call_compare_by_status))
+ 		return;
+ 
+ 	g_at_result_iter_init(&iter, result);
+diff -urN ofono-1.20/drivers/hfpmodem/voicecall.c ofono-1.20-patched/drivers/hfpmodem/voicecall.c
+--- ofono-1.20/drivers/hfpmodem/voicecall.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/hfpmodem/voicecall.c	2017-07-27 01:53:56.000000000 +0200
+@@ -85,12 +85,12 @@
+ 	GSList *c;
+ 
+ 	c = g_slist_find_custom(calls, GINT_TO_POINTER(CALL_STATUS_DIALING),
+-				at_util_call_compare_by_status);
++				ofono_call_compare_by_status);
+ 
+ 	if (c == NULL)
+ 		c = g_slist_find_custom(calls,
+ 					GINT_TO_POINTER(CALL_STATUS_ALERTING),
+-					at_util_call_compare_by_status);
++					ofono_call_compare_by_status);
+ 
+ 	return c;
+ }
+@@ -128,7 +128,7 @@
+ 		call->phone_number.type = num_type;
+ 	}
+ 
+-	d->calls = g_slist_insert_sorted(d->calls, call, at_util_call_compare);
++	d->calls = g_slist_insert_sorted(d->calls, call, ofono_call_compare);
+ 
+ 	call->clip_validity = clip;
+ 
+@@ -720,7 +720,7 @@
+ 	/* CCWA can repeat, ignore if we already have an waiting call */
+ 	if (g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_WAITING),
+-				at_util_call_compare_by_status))
++				ofono_call_compare_by_status))
+ 		return;
+ 
+ 	/* some phones may send extra CCWA after active call is ended
+@@ -729,7 +729,7 @@
+ 	 */
+ 	if (g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_INCOMING),
+-				at_util_call_compare_by_status))
++				ofono_call_compare_by_status))
+ 		return;
+ 
+ 
+@@ -772,7 +772,7 @@
+ 
+ 	l = g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_INCOMING),
+-				at_util_call_compare_by_status);
++				ofono_call_compare_by_status);
+ 
+ 	if (l == NULL)
+ 		return FALSE;
+@@ -801,12 +801,12 @@
+ 	/* RING can repeat, ignore if we already have an incoming call */
+ 	if (g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_INCOMING),
+-				at_util_call_compare_by_status))
++				ofono_call_compare_by_status))
+ 		return;
+ 
+ 	waiting = g_slist_find_custom(vd->calls,
+ 					GINT_TO_POINTER(CALL_STATUS_WAITING),
+-					at_util_call_compare_by_status);
++					ofono_call_compare_by_status);
+ 
+ 	/* If we started receiving RINGS but have a waiting call, most
+ 	 * likely all other calls were dropped and we just didn't get
+@@ -851,7 +851,7 @@
+ 
+ 	l = g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_INCOMING),
+-				at_util_call_compare_by_status);
++				ofono_call_compare_by_status);
+ 
+ 	if (l == NULL) {
+ 		ofono_error("CLIP for unknown call");
+@@ -967,7 +967,7 @@
+ 
+ 	waiting = g_slist_find_custom(vd->calls,
+ 					GINT_TO_POINTER(CALL_STATUS_WAITING),
+-					at_util_call_compare_by_status);
++					ofono_call_compare_by_status);
+ 
+ 	/* This is a truly bizarre case not covered at all by the specification
+ 	 * (yes, they are complete idiots).  Here we assume the other side is
+@@ -1046,7 +1046,7 @@
+ 	{
+ 		GSList *o = g_slist_find_custom(vd->calls,
+ 					GINT_TO_POINTER(CALL_STATUS_DIALING),
+-					at_util_call_compare_by_status);
++					ofono_call_compare_by_status);
+ 
+ 		if (o) {
+ 			struct ofono_call *call = o->data;
+diff -urN ofono-1.20/drivers/huaweimodem/voicecall.c ofono-1.20-patched/drivers/huaweimodem/voicecall.c
+--- ofono-1.20/drivers/huaweimodem/voicecall.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/huaweimodem/voicecall.c	2017-07-27 01:53:56.000000000 +0200
+@@ -76,7 +76,7 @@
+ 
+ 	call->clip_validity = clip;
+ 
+-	d->calls = g_slist_insert_sorted(d->calls, call, at_util_call_compare);
++	d->calls = g_slist_insert_sorted(d->calls, call, ofono_call_compare);
+ 
+ 	return call;
+ }
+@@ -179,7 +179,7 @@
+ 	/* CRING can repeat, ignore if we already have an incoming call */
+ 	if (g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_INCOMING),
+-				at_util_call_compare_by_status))
++				ofono_call_compare_by_status))
+ 		return;
+ 
+ 	g_at_result_iter_init(&iter, result);
+@@ -218,7 +218,7 @@
+ 
+ 	l = g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_INCOMING),
+-				at_util_call_compare_by_status);
++				ofono_call_compare_by_status);
+ 	if (l == NULL) {
+ 		ofono_error("CLIP for unknown call");
+ 		return;
+@@ -347,7 +347,7 @@
+ 	ofono_info("Call setup: id %d", call_id);
+ 
+ 	l = g_slist_find_custom(vd->calls, GINT_TO_POINTER(call_id),
+-				at_util_call_compare_by_id);
++				ofono_call_compare_by_id);
+ 	if (l == NULL) {
+ 		ofono_error("Received CONF for untracked call");
+ 		return;
+@@ -384,7 +384,7 @@
+ 	ofono_info("Call connect: id %d type %d", call_id, call_type);
+ 
+ 	l = g_slist_find_custom(vd->calls, GINT_TO_POINTER(call_id),
+-				at_util_call_compare_by_id);
++				ofono_call_compare_by_id);
+ 	if (l == NULL) {
+ 		ofono_error("Received CONN for untracked call");
+ 		return;
+@@ -428,7 +428,7 @@
+ 				call_id, duration, end_status);
+ 
+ 	l = g_slist_find_custom(vd->calls, GINT_TO_POINTER(call_id),
+-				at_util_call_compare_by_id);
++				ofono_call_compare_by_id);
+ 	if (l == NULL) {
+ 		ofono_error("Received CEND for untracked call");
+ 		return;
+diff -urN ofono-1.20/drivers/ifxmodem/gprs-context.c ofono-1.20-patched/drivers/ifxmodem/gprs-context.c
+--- ofono-1.20/drivers/ifxmodem/gprs-context.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/ifxmodem/gprs-context.c	2017-07-27 01:53:56.000000000 +0200
+@@ -283,7 +283,7 @@
+ {
+ 	struct ofono_gprs_context *gc = user_data;
+ 	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+-	char buf[128];
++	char buf[384];
+ 
+ 	DBG("ok %d", ok);
+ 
+diff -urN ofono-1.20/drivers/ifxmodem/voicecall.c ofono-1.20-patched/drivers/ifxmodem/voicecall.c
+--- ofono-1.20/drivers/ifxmodem/voicecall.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/ifxmodem/voicecall.c	2017-07-27 01:53:56.000000000 +0200
+@@ -107,7 +107,7 @@
+ 
+ 	call->clip_validity = clip;
+ 
+-	d->calls = g_slist_insert_sorted(d->calls, call, at_util_call_compare);
++	d->calls = g_slist_insert_sorted(d->calls, call, ofono_call_compare);
+ 
+ 	return call;
+ }
+@@ -135,7 +135,7 @@
+ 		return;
+ 
+ 	l = g_slist_find_custom(vd->calls, GINT_TO_POINTER(id),
+-				at_util_call_compare_by_id);
++				ofono_call_compare_by_id);
+ 
+ 	if (l == NULL && status != CALL_STATUS_DIALING &&
+ 				status != CALL_STATUS_INCOMING &&
+@@ -545,12 +545,12 @@
+ 	 */
+ 	if (g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_WAITING),
+-				at_util_call_compare_by_status))
++				ofono_call_compare_by_status))
+ 		return;
+ 
+ 	l = g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_INCOMING),
+-				at_util_call_compare_by_status);
++				ofono_call_compare_by_status);
+ 	if (l == NULL) {
+ 		ofono_error("CRING received before XCALLSTAT!!!");
+ 		return;
+@@ -589,7 +589,7 @@
+ 
+ 	l = g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_INCOMING),
+-				at_util_call_compare_by_status);
++				ofono_call_compare_by_status);
+ 	if (l == NULL) {
+ 		ofono_error("CLIP for unknown call");
+ 		return;
+@@ -649,7 +649,7 @@
+ 	 */
+ 	l = g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_INCOMING),
+-				at_util_call_compare_by_status);
++				ofono_call_compare_by_status);
+ 	if (l == NULL) {
+ 		ofono_error("CNAP for unknown call");
+ 		return;
+@@ -695,7 +695,7 @@
+ 
+ 	l = g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(CALL_STATUS_WAITING),
+-				at_util_call_compare_by_status);
++				ofono_call_compare_by_status);
+ 	if (l == NULL) {
+ 		ofono_error("CCWA received before XCALLSTAT!!!");
+ 		return;
+@@ -773,7 +773,7 @@
+ 
+ 	l = g_slist_find_custom(vd->calls,
+ 				GINT_TO_POINTER(call_id),
+-				at_util_call_compare_by_id);
++				ofono_call_compare_by_id);
+ 	if (l == NULL) {
+ 		ofono_error("XCOLP for unknown call");
+ 		return;
+diff -urN ofono-1.20/drivers/qmimodem/nas.h ofono-1.20-patched/drivers/qmimodem/nas.h
+--- ofono-1.20/drivers/qmimodem/nas.h	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/qmimodem/nas.h	2017-07-27 01:53:56.000000000 +0200
+@@ -97,6 +97,7 @@
+ 	} __attribute__((__packed__)) info[0];
+ } __attribute__((__packed__));
+ 
++#define QMI_NAS_NETWORK_RAT_NONE		0x00
+ #define QMI_NAS_NETWORK_RAT_GSM			0x04
+ #define QMI_NAS_NETWORK_RAT_UMTS		0x05
+ #define QMI_NAS_NETWORK_RAT_LTE			0x08
+@@ -149,6 +150,18 @@
+ #define QMI_NAS_REGISTRATION_STATE_DENIED		0x03
+ #define QMI_NAS_REGISTRATION_STATE_UNKNOWN		0x04
+ 
++#define QMI_NAS_RESULT_3GGP_DST 0x1b
++#define QMI_NAS_RESULT_3GPP_TIME 0x1c
++struct qmi_nas_3gpp_time {
++	uint16_t year;
++	uint8_t month;
++	uint8_t day;
++	uint8_t hour;
++	uint8_t minute;
++	uint8_t second;
++	uint8_t timezone;
++} __attribute__((__packed__));
++
+ /* cs_state/ps_state */
+ #define QMI_NAS_ATTACH_STATE_INVALID		0x00
+ #define QMI_NAS_ATTACH_STATE_ATTACHED		0x01
+diff -urN ofono-1.20/drivers/qmimodem/network-registration.c ofono-1.20-patched/drivers/qmimodem/network-registration.c
+--- ofono-1.20/drivers/qmimodem/network-registration.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/qmimodem/network-registration.c	2017-07-27 01:53:56.000000000 +0200
+@@ -23,6 +23,7 @@
+ #include <config.h>
+ #endif
+ 
++#include <endian.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -43,6 +44,38 @@
+ 	uint8_t current_rat;
+ };
+ 
++static bool extract_ss_info_time(
++		struct qmi_result *result,
++		struct ofono_network_time *time)
++{
++	const struct qmi_nas_3gpp_time *time_3gpp= NULL;
++	uint8_t dst_3gpp;
++	bool dst_3gpp_valid;
++	uint16_t len;
++
++	/* parse 3gpp time & dst */
++	dst_3gpp_valid = qmi_result_get_uint8(result, QMI_NAS_RESULT_3GGP_DST,
++					      &dst_3gpp);
++
++	time_3gpp = qmi_result_get(result, QMI_NAS_RESULT_3GPP_TIME, &len);
++	if (time_3gpp && len == sizeof(struct qmi_nas_3gpp_time) &&
++			dst_3gpp_valid) {
++		time->year = le16toh(time_3gpp->year);
++		time->mon = time_3gpp->month;
++		time->mday = time_3gpp->day;
++		time->hour = time_3gpp->hour;
++		time->min = time_3gpp->minute;
++		time->sec= time_3gpp->second;
++		time->utcoff = time_3gpp->timezone * 15 * 60;
++		time->dst = dst_3gpp;
++		return true;
++	}
++
++	/* TODO: 3gpp2 */
++
++	return false;
++}
++
+ static bool extract_ss_info(struct qmi_result *result, int *status,
+ 				int *lac, int *cellid, int *tech,
+ 				struct ofono_network_operator *operator)
+@@ -124,11 +157,15 @@
+ static void ss_info_notify(struct qmi_result *result, void *user_data)
+ {
+ 	struct ofono_netreg *netreg = user_data;
++	struct ofono_network_time net_time;
+ 	struct netreg_data *data = ofono_netreg_get_data(netreg);
+ 	int status, lac, cellid, tech;
+ 
+ 	DBG("");
+ 
++	if (extract_ss_info_time(result, &net_time))
++		ofono_netreg_time_notify(netreg, &net_time);
++
+ 	if (!extract_ss_info(result, &status, &lac, &cellid, &tech,
+ 							&data->operator))
+ 		return;
+@@ -356,7 +393,7 @@
+ 
+ 	info.mcc = atoi(mcc);
+ 	info.mnc = atoi(mnc);
+-	info.rat = data->current_rat;
++	info.rat = QMI_NAS_NETWORK_RAT_NO_CHANGE;
+ 
+ 	qmi_param_append(param, QMI_NAS_PARAM_REGISTER_MANUAL_INFO,
+ 						sizeof(info), &info);
+@@ -450,10 +487,10 @@
+         if (ss) {
+ 		int strength;
+ 
+-		DBG("signal with %d dBm on %d", ss->dbm, ss->rat);
+-
+ 		strength = dbm_to_strength(ss->dbm);
+ 
++		DBG("signal with %d%(%d dBm) on %d", strength, ss->dbm, ss->rat);
++
+ 		ofono_netreg_strength_notify(netreg, strength);
+ 	}
+ 
+diff -urN ofono-1.20/drivers/qmimodem/qmi.c ofono-1.20-patched/drivers/qmimodem/qmi.c
+--- ofono-1.20/drivers/qmimodem/qmi.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/qmimodem/qmi.c	2017-07-27 01:53:56.000000000 +0200
+@@ -73,6 +73,8 @@
+ 	void *shutdown_user_data;
+ 	qmi_destroy_func_t shutdown_destroy;
+ 	guint shutdown_source;
++	bool shutting_down : 1;
++	bool destroyed : 1;
+ };
+ 
+ struct qmi_service {
+@@ -1000,7 +1002,10 @@
+ 	g_free(device->version_str);
+ 	g_free(device->version_list);
+ 
+-	g_free(device);
++	if (device->shutting_down)
++		device->destroyed = true;
++	else
++		g_free(device);
+ }
+ 
+ void qmi_device_set_debug(struct qmi_device *device,
+@@ -1021,6 +1026,23 @@
+ 	device->close_on_unref = do_close;
+ }
+ 
++void qmi_result_print_tlvs(struct qmi_result *result)
++{
++	const void *ptr = result->data;
++	uint16_t len = result->length;
++
++	while (len > QMI_TLV_HDR_SIZE) {
++		const struct qmi_tlv_hdr *tlv = ptr;
++		uint16_t tlv_length = GUINT16_FROM_LE(tlv->length);
++
++		DBG("tlv: 0x%02x len 0x%04x", tlv->type, tlv->length);
++
++		ptr += QMI_TLV_HDR_SIZE + tlv_length;
++		len -= QMI_TLV_HDR_SIZE + tlv_length;
++	}
++}
++
++
+ static const void *tlv_get(const void *data, uint16_t size,
+ 					uint8_t type, uint16_t *length)
+ {
+@@ -1255,6 +1277,9 @@
+ 		device->shutdown_destroy(device->shutdown_user_data);
+ 
+ 	device->shutdown_source = 0;
++
++	if (device->destroyed)
++		g_free(device);
+ }
+ 
+ static gboolean shutdown_callback(gpointer user_data)
+@@ -1264,9 +1289,13 @@
+ 	if (device->release_users > 0)
+ 		return TRUE;
+ 
++	device->shutting_down = true;
++
+ 	if (device->shutdown_func)
+ 		device->shutdown_func(device->shutdown_user_data);
+ 
++	device->shutting_down = true;
++
+ 	return FALSE;
+ }
+ 
+@@ -1293,6 +1322,53 @@
+ 
+ 	return true;
+ }
++
++struct sync_data {
++	qmi_sync_func_t func;
++	void *user_data;
++};
++
++static void qmi_device_sync_callback(uint16_t message, uint16_t length,
++				     const void *buffer, void *user_data)
++{
++	struct sync_data *data = user_data;
++
++	if(data->func)
++		data->func(data->user_data);
++
++	g_free(data);
++}
++
++/* sync will release all previous clients */
++bool qmi_device_sync(struct qmi_device *device,
++		     qmi_sync_func_t func, void *user_data)
++{
++	struct qmi_request *req;
++	struct qmi_control_hdr *hdr;
++	struct sync_data *func_data;
++
++	if (!device)
++		return false;
++
++	func_data = g_new0(struct sync_data, 1);
++	func_data->func = func;
++	func_data->user_data = user_data;
++
++	req = __request_alloc(QMI_SERVICE_CONTROL, 0x00,
++			QMI_CTL_SYNC, QMI_CONTROL_HDR_SIZE,
++			NULL, 0,
++			qmi_device_sync_callback, func_data, (void **) &hdr);
++
++	if (device->next_control_tid < 1)
++		device->next_control_tid = 1;
++
++	hdr->type = 0x00;
++	hdr->transaction = device->next_control_tid++;
++
++	__request_submit(device, req, hdr->transaction);
++
++	return true;
++}
+ 
+ static bool get_device_file_name(struct qmi_device *device,
+ 					char *file_name, int size)
+diff -urN ofono-1.20/drivers/qmimodem/qmi.h ofono-1.20-patched/drivers/qmimodem/qmi.h
+--- ofono-1.20/drivers/qmimodem/qmi.h	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/qmimodem/qmi.h	2017-07-27 01:53:56.000000000 +0200
+@@ -19,6 +19,9 @@
+  *
+  */
+ 
++#ifndef __OFONO_QMI_QMI_H
++#define __OFONO_QMI_QMI_H
++
+ #include <stdbool.h>
+ #include <stdint.h>
+ 
+@@ -76,7 +79,7 @@
+ struct qmi_device;
+ 
+ typedef void (*qmi_debug_func_t)(const char *str, void *user_data);
+-
++typedef void (*qmi_sync_func_t)(void *user_data);
+ typedef void (*qmi_shutdown_func_t)(void *user_data);
+ typedef void (*qmi_discover_func_t)(uint8_t count,
+ 			const struct qmi_version *list, void *user_data);
+@@ -96,6 +99,9 @@
+ bool qmi_device_shutdown(struct qmi_device *device, qmi_shutdown_func_t func,
+ 				void *user_data, qmi_destroy_func_t destroy);
+ 
++bool qmi_device_sync(struct qmi_device *device,
++		     qmi_sync_func_t func, void *user_data);
++
+ enum qmi_device_expected_data_format qmi_device_get_expected_data_format(
+ 						struct qmi_device *device);
+ bool qmi_device_set_expected_data_format(struct qmi_device *device,
+@@ -136,7 +142,7 @@
+ 							uint32_t *value);
+ bool qmi_result_get_uint64(struct qmi_result *result, uint8_t type,
+ 							uint64_t *value);
+-
++void qmi_result_print_tlvs(struct qmi_result *result);
+ 
+ struct qmi_service;
+ 
+@@ -170,3 +176,13 @@
+ 				void *user_data, qmi_destroy_func_t destroy);
+ bool qmi_service_unregister(struct qmi_service *service, uint16_t id);
+ bool qmi_service_unregister_all(struct qmi_service *service);
++
++
++/* FIXME: find a place for parse_error */
++enum parse_error {
++	NONE = 0,
++	MISSING_MANDATORY = 1,
++	INVALID_LENGTH = 2,
++};
++
++#endif /* __OFONO_QMI_QMI_H */
+diff -urN ofono-1.20/drivers/qmimodem/sms.c ofono-1.20-patched/drivers/qmimodem/sms.c
+--- ofono-1.20/drivers/qmimodem/sms.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/qmimodem/sms.c	2017-07-27 01:53:56.000000000 +0200
+@@ -411,7 +411,7 @@
+ 	new_list->count = GUINT16_TO_LE(1);
+ 	new_list->route[0].msg_type = QMI_WMS_MSG_TYPE_P2P;
+ 	new_list->route[0].msg_class = QMI_WMS_MSG_CLASS_NONE;
+-	new_list->route[0].storage_type = QMI_WMS_STORAGE_TYPE_NV;
++	new_list->route[0].storage_type = QMI_WMS_STORAGE_TYPE_NONE;
+ 	new_list->route[0].action = QMI_WMS_ACTION_TRANSFER_AND_ACK;
+ 
+ 	param = qmi_param_new();
+diff -urN ofono-1.20/drivers/qmimodem/voice.c ofono-1.20-patched/drivers/qmimodem/voice.c
+--- ofono-1.20/drivers/qmimodem/voice.c	1970-01-01 01:00:00.000000000 +0100
++++ ofono-1.20-patched/drivers/qmimodem/voice.c	2017-07-27 01:53:56.000000000 +0200
+@@ -0,0 +1,86 @@
++/*
++ *
++ *  oFono - Open Source Telephony
++ *
++ *  Copyright (C) 2017 Alexander Couzens <lynxis@fe80.eu>
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License version 2 as
++ *  published by the Free Software Foundation.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ */
++
++#include <stdint.h>
++
++#include "voice.h"
++#include "../../src/common.h"
++
++#define _(X) case X: return #X
++
++const char *qmi_voice_call_state_name(enum qmi_voice_call_state value)
++{
++	switch (value) {
++		_(QMI_CALL_STATE_IDLE);
++		_(QMI_CALL_STATE_ORIG);
++		_(QMI_CALL_STATE_INCOMING);
++		_(QMI_CALL_STATE_CONV);
++		_(QMI_CALL_STATE_CC_IN_PROG);
++		_(QMI_CALL_STATE_ALERTING);
++		_(QMI_CALL_STATE_HOLD);
++		_(QMI_CALL_STATE_WAITING);
++		_(QMI_CALL_STATE_DISCONNECTING);
++		_(QMI_CALL_STATE_END);
++		_(QMI_CALL_STATE_SETUP);
++	}
++	return "QMI_CALL_STATE_<UNKNOWN>";
++}
++
++int qmi_to_ofono_status(uint8_t status, int *ret) {
++	int err = 0;
++	switch (status) {
++	case QMI_CALL_STATE_IDLE:
++	case QMI_CALL_STATE_END:
++	case QMI_CALL_STATE_DISCONNECTING:
++		*ret = CALL_STATUS_DISCONNECTED;
++		break;
++	case QMI_CALL_STATE_HOLD:
++		*ret = CALL_STATUS_HELD;
++		break;
++	case QMI_CALL_STATE_WAITING:
++		*ret = CALL_STATUS_WAITING;
++		break;
++	case QMI_CALL_STATE_ORIG:
++		*ret = CALL_STATUS_DIALING;
++		break;
++	case QMI_CALL_STATE_INCOMING:
++		*ret = CALL_STATUS_INCOMING;
++		break;
++	case QMI_CALL_STATE_CONV:
++		*ret = CALL_STATUS_ACTIVE;
++		break;
++	case QMI_CALL_STATE_CC_IN_PROG:
++	case QMI_CALL_STATE_SETUP:
++		/* FIXME: unsure if _SETUP is dialing or not */
++		*ret = CALL_STATUS_DIALING;
++		break;
++	case QMI_CALL_STATE_ALERTING:
++		*ret = CALL_STATUS_ALERTING;
++		break;
++	default:
++		err = 1;
++	}
++	return err;
++}
++
++uint8_t ofono_to_qmi_direction(enum call_direction ofono_direction) {
++	return ofono_direction + 1;
++}
++enum call_direction qmi_to_ofono_direction(uint8_t qmi_direction) {
++	return qmi_direction - 1;
++}
++
+diff -urN ofono-1.20/drivers/qmimodem/voicecall.c ofono-1.20-patched/drivers/qmimodem/voicecall.c
+--- ofono-1.20/drivers/qmimodem/voicecall.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/qmimodem/voicecall.c	2017-07-27 01:53:56.000000000 +0200
+@@ -3,6 +3,7 @@
+  *  oFono - Open Source Telephony
+  *
+  *  Copyright (C) 2011-2012  Intel Corporation. All rights reserved.
++ *  Copyright (C) 2017 Alexander Couzens <lynxis@fe80.eu>
+  *
+  *  This program is free software; you can redistribute it and/or modify
+  *  it under the terms of the GNU General Public License version 2 as
+@@ -23,20 +24,113 @@
+ #include <config.h>
+ #endif
+ 
++#include <string.h>
++
+ #include <ofono/log.h>
+ #include <ofono/modem.h>
+ #include <ofono/voicecall.h>
++#include <ofono/call-list.h>
+ 
+-#include "qmi.h"
++#include "../src/common.h"
+ 
++#include "qmi.h"
+ #include "qmimodem.h"
++#include "voice.h"
++#include "voice_generated.h"
++
++#ifndef ARRAY_SIZE
++#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
++#endif
++
++
++/* qmi protocol */
++
++
++/* end of qmi */
+ 
+ struct voicecall_data {
+ 	struct qmi_service *voice;
+ 	uint16_t major;
+ 	uint16_t minor;
++	GSList *call_list;
++	struct voicecall_static *vs;
++	struct ofono_phone_number dialed;
+ };
+ 
++static void all_call_status_ind(struct qmi_result *result, void *user_data)
++{
++	struct ofono_voicecall *vc = user_data;
++	struct voicecall_data *vd = ofono_voicecall_get_data(vc);
++	GSList *calls = NULL;
++	int i;
++	int size = 0;
++	struct qmi_voice_all_call_status_ind status_ind;
++	GSList *n, *o;
++	struct ofono_call *nc, *oc;
++
++
++	if (qmi_voice_ind_call_status(result, &status_ind) != NONE) {
++		DBG("Parsing of all call status indication failed");
++		return;
++	}
++
++	if (!status_ind.remote_party_number_set || !status_ind.call_information_set) {
++		DBG("Some required fields are not set");
++		return;
++	}
++
++	size = status_ind.call_information->size;
++	if (!size) {
++		DBG("No call informations received!");
++		return;
++	}
++
++	/* expect we have valid fields for every call */
++	if (size != status_ind.remote_party_number_size)  {
++		DBG("Not all fields have the same size");
++		return;
++	}
++
++	for (i = 0; i < size; i++) {
++		struct qmi_voice_call_information_instance call_info;
++		struct ofono_call *call;
++		const struct qmi_voice_remote_party_number_instance *remote_party = status_ind.remote_party_number[i];
++		int number_size;
++
++		call_info = status_ind.call_information->instance[i];
++		call = g_new0(struct ofono_call, 1);
++		call->id = call_info.id;
++		call->direction = qmi_to_ofono_direction(call_info.direction);
++
++		if (qmi_to_ofono_status(call_info.state, &call->status)) {
++			DBG("Ignore call id %d, because can not convert QMI state 0x%x to ofono.",
++			    call_info.id, call_info.state);
++			continue;
++		}
++		DBG("Call %d in state %s(%d)",
++		    call_info.id,
++		    qmi_voice_call_state_name(call_info.state),
++		    call_info.state);
++
++		call->type = 0; /* always voice */
++		number_size = remote_party->number_size;
++		if (number_size > OFONO_MAX_PHONE_NUMBER_LENGTH)
++			OFONO_MAX_PHONE_NUMBER_LENGTH;
++		strncpy(call->phone_number.number, remote_party->number,
++				number_size);
++		/* FIXME: set phone_number_type */
++
++		if (strlen(call->phone_number.number) > 0)
++			call->clip_validity = 0;
++		else
++			call->clip_validity = 2;
++
++		calls = g_slist_insert_sorted(calls, call, ofono_call_compare);
++	}
++
++	ofono_call_list_notify(vc, &vd->call_list, calls);
++}
++
+ static void create_voice_cb(struct qmi_service *service, void *user_data)
+ {
+ 	struct ofono_voicecall *vc = user_data;
+@@ -58,6 +152,12 @@
+ 
+ 	data->voice = qmi_service_ref(service);
+ 
++	/* FIXME: we should call indication_register to ensure we get notified on call events.
++	 * We rely at the moment on the default value of notifications
++	 */
++	qmi_service_register(data->voice, QMI_VOICE_IND_ALL_STATUS,
++			     all_call_status_ind, vc, NULL);
++
+ 	ofono_voicecall_register(vc);
+ }
+ 
+@@ -77,7 +177,6 @@
+ 					create_voice_cb, vc, NULL);
+ 
+ 	return 0;
+-
+ }
+ 
+ static void qmi_voicecall_remove(struct ofono_voicecall *vc)
+@@ -92,13 +191,242 @@
+ 
+ 	qmi_service_unref(data->voice);
+ 
++	g_slist_free_full(data->call_list, g_free);
++
+ 	g_free(data);
+ }
+ 
++
++static struct ofono_call *create_call(struct ofono_voicecall *vc,
++				      enum call_direction direction,
++				      enum call_status status,
++				      const char *num,
++				      int num_type,
++				      int clip)
++{
++	return NULL;
++}
++
++static void dial_cb(struct qmi_result *result, void *user_data)
++{
++	struct cb_data *cbd = user_data;
++	struct ofono_voicecall *vc = cbd->user;
++	struct voicecall_data *vd = ofono_voicecall_get_data(vc);
++	ofono_voicecall_cb_t cb = cbd->cb;
++	uint16_t error;
++	struct qmi_voice_dial_call_result dial_result;
++	struct ofono_call *call;
++
++	if (qmi_result_set_error(result, &error)) {
++		DBG("QMI Error %d", error);
++		CALLBACK_WITH_FAILURE(cb, cbd->data);
++		return;
++	}
++
++	if (NONE != qmi_voice_dial_call_parse(result, &dial_result)) {
++		DBG("Received invalid Result");
++		CALLBACK_WITH_FAILURE(cb, cbd->data);
++		return;
++	}
++
++	if (!dial_result.call_id_set) {
++		DBG("Didn't receive a call id");
++		CALLBACK_WITH_FAILURE(cb, cbd->data);
++		return;
++	}
++
++	DBG("New call QMI id %d", dial_result.call_id);
++	ofono_call_list_dial_callback(vc,
++				      &vd->call_list,
++				      &vd->dialed,
++				      dial_result.call_id);
++
++
++	/* FIXME: create a timeout on this call_id */
++	CALLBACK_WITH_SUCCESS(cb, cbd->data);
++}
++
++static void dial(struct ofono_voicecall *vc, const struct ofono_phone_number *ph,
++		enum ofono_clir_option clir, ofono_voicecall_cb_t cb,
++		void *data)
++{
++	struct voicecall_data *vd = ofono_voicecall_get_data(vc);
++	struct cb_data *cbd = cb_data_new(cb, data);
++	struct qmi_voice_dial_call_arg arg;
++
++	cbd->user = vc;
++	arg.calling_number_set = true;
++	arg.calling_number = ph->number;
++	memcpy(&vd->dialed, ph, sizeof(*ph));
++
++	arg.call_type_set = true;
++	arg.call_type = QMI_CALL_TYPE_VOICE_FORCE;
++
++	if (!qmi_voice_dial_call(
++				&arg,
++				vd->voice,
++				dial_cb,
++				cbd,
++				g_free))
++		return;
++
++	CALLBACK_WITH_FAILURE(cb, data);
++	g_free(cbd);
++}
++
++static void answer_cb(struct qmi_result *result, void *user_data)
++{
++	struct cb_data *cbd = user_data;
++	struct ofono_voicecall *vc = cbd->user;
++	ofono_voicecall_cb_t cb = cbd->cb;
++	uint16_t error;
++	struct qmi_voice_answer_call_result answer_result;
++	struct ofono_call *call;
++
++	if (qmi_result_set_error(result, &error)) {
++		DBG("QMI Error %d", error);
++		CALLBACK_WITH_FAILURE(cb, cbd->data);
++		return;
++	}
++
++	/* TODO: what happens when calling it with no active call or wrong caller id? */
++	if (NONE != qmi_voice_answer_call_parse(result, &answer_result)) {
++		DBG("Received invalid Result");
++		CALLBACK_WITH_FAILURE(cb, cbd->data);
++		return;
++	}
++
++	CALLBACK_WITH_SUCCESS(cb, cbd->data);
++}
++
++static void answer(struct ofono_voicecall *vc, ofono_voicecall_cb_t cb, void *data)
++{
++	struct voicecall_data *vd = ofono_voicecall_get_data(vc);
++	struct cb_data *cbd = cb_data_new(cb, data);
++	struct qmi_voice_answer_call_arg arg;
++	struct ofono_call *call;
++	GSList *list;
++
++	DBG("");
++	cbd->user = vc;
++
++	list = g_slist_find_custom(vd->call_list,
++				   GINT_TO_POINTER(CALL_STATUS_INCOMING),
++				   ofono_call_compare_by_status);
++
++	if (list == NULL) {
++		DBG("Can not find a call to answer");
++		goto err;
++	}
++
++	call = list->data;
++
++	arg.call_id_set = true;
++	arg.call_id = call->id;
++
++	if (!qmi_voice_answer_call(
++				&arg,
++				vd->voice,
++				answer_cb,
++				cbd,
++				g_free))
++		return;
++err:
++	CALLBACK_WITH_FAILURE(cb, data);
++	g_free(cbd);
++}
++
++static void end_cb(struct qmi_result *result, void *user_data)
++{
++	struct cb_data *cbd = user_data;
++	struct ofono_voicecall *vc = cbd->user;
++	ofono_voicecall_cb_t cb = cbd->cb;
++	uint16_t error;
++	struct qmi_voice_end_call_result end_result;
++	struct ofono_call *call;
++
++	if (qmi_result_set_error(result, &error)) {
++		DBG("QMI Error %d", error);
++		CALLBACK_WITH_FAILURE(cb, cbd->data);
++		return;
++	}
++
++	if (NONE != qmi_voice_end_call_parse(result, &end_result)) {
++		DBG("Received invalid Result");
++		CALLBACK_WITH_FAILURE(cb, cbd->data);
++		return;
++	}
++
++	CALLBACK_WITH_SUCCESS(cb, cbd->data);
++}
++
++static void release_specific(struct ofono_voicecall *vc, int id,
++		ofono_voicecall_cb_t cb, void *data)
++{
++	struct voicecall_data *vd = ofono_voicecall_get_data(vc);
++	struct cb_data *cbd = cb_data_new(cb, data);
++	struct qmi_voice_end_call_arg arg;
++	int i;
++
++	DBG("");
++	cbd->user = vc;
++
++	arg.call_id_set = true;
++	arg.call_id = id;
++
++	if (!qmi_voice_end_call(&arg,
++				vd->voice,
++				end_cb,
++				cbd,
++				g_free))
++		return;
++
++	CALLBACK_WITH_FAILURE(cb, data);
++	g_free(cbd);
++}
++
++static void hangup_active(struct ofono_voicecall *vc,
++		ofono_voicecall_cb_t cb, void *data)
++{
++	struct voicecall_data *vd = ofono_voicecall_get_data(vc);
++	struct qmi_voice_end_call_arg arg;
++	struct ofono_call *call;
++	GSList *list = NULL;
++	enum call_status active[] = {
++		CALL_STATUS_ACTIVE,
++		CALL_STATUS_DIALING,
++		CALL_STATUS_ALERTING
++	};
++	int i;
++
++	DBG("");
++	for (i = 0; i < ARRAY_SIZE(active); i++) {
++		list = g_slist_find_custom(vd->call_list,
++					   GINT_TO_POINTER(CALL_STATUS_ACTIVE),
++					   ofono_call_compare_by_status);
++
++		if (list)
++			break;
++	}
++
++	if (list == NULL) {
++		DBG("Can not find a call to hang up");
++		CALLBACK_WITH_FAILURE(cb, data);
++		return;
++	}
++
++	call = list->data;
++	release_specific(vc, call->id, cb, data);
++}
++
+ static struct ofono_voicecall_driver driver = {
+ 	.name		= "qmimodem",
+ 	.probe		= qmi_voicecall_probe,
+ 	.remove		= qmi_voicecall_remove,
++	.dial		= dial,
++	.answer		= answer,
++	.hangup_active  = hangup_active,
++	.release_specific  = release_specific,
+ };
+ 
+ void qmi_voicecall_init(void)
+diff -urN ofono-1.20/drivers/qmimodem/voice_generated.c ofono-1.20-patched/drivers/qmimodem/voice_generated.c
+--- ofono-1.20/drivers/qmimodem/voice_generated.c	1970-01-01 01:00:00.000000000 +0100
++++ ofono-1.20-patched/drivers/qmimodem/voice_generated.c	2017-07-27 01:53:56.000000000 +0200
+@@ -0,0 +1,210 @@
++
++#include <stdint.h>
++#include <string.h>
++#include <glib.h>
++
++#include "voice_generated.h"
++
++int qmi_voice_dial_call(
++		struct qmi_voice_dial_call_arg *arg,
++		struct qmi_service *service,
++		qmi_result_func_t func,
++		void *user_data,
++		qmi_destroy_func_t destroy)
++{
++	struct qmi_param *param = NULL;
++
++	param = qmi_param_new();
++	if (!param)
++		goto error;
++
++	if (arg->calling_number_set) {
++		if (!qmi_param_append(param,
++				 0x1,
++				 strlen(arg->calling_number),
++				 arg->calling_number))
++			goto error;
++	}
++
++	if (arg->call_type_set)
++		qmi_param_append_uint8(param, 0x10, arg->call_type);
++
++	if (qmi_service_send(service,
++			     0x20,
++			     param,
++			     func,
++			     user_data,
++			     destroy) > 0)
++		return 0;
++error:
++	g_free(param);
++	return 1;
++}
++
++enum parse_error qmi_voice_dial_call_parse(
++		struct qmi_result *qmi_result,
++		struct qmi_voice_dial_call_result *result)
++{
++	int err = NONE;
++
++	/* mandatory */
++	if (qmi_result_get_uint8(qmi_result, 0x10, &result->call_id))
++		result->call_id_set = 1;
++	else
++		err = MISSING_MANDATORY;
++
++	return err;
++}
++
++int qmi_voice_end_call(
++		struct qmi_voice_end_call_arg *arg,
++		struct qmi_service *service,
++		qmi_result_func_t func,
++		void *user_data,
++		qmi_destroy_func_t destroy)
++{
++	struct qmi_param *param = NULL;
++
++	param = qmi_param_new();
++	if (!param)
++		goto error;
++
++	if (arg->call_id_set) {
++		if (!qmi_param_append_uint8(
++					param,
++					0x1,
++					arg->call_id))
++			goto error;
++	}
++
++	if (qmi_service_send(service,
++			     0x21,
++			     param,
++			     func,
++			     user_data,
++			     destroy) > 0)
++		return 0;
++error:
++	g_free(param);
++	return 1;
++}
++
++enum parse_error qmi_voice_end_call_parse(
++		struct qmi_result *qmi_result,
++		struct qmi_voice_end_call_result *result)
++{
++	int err = NONE;
++
++	/* optional */
++	if (qmi_result_get_uint8(qmi_result, 0x10, &result->call_id))
++		result->call_id_set = 1;
++
++	return err;
++}
++
++
++int qmi_voice_answer_call(
++		struct qmi_voice_answer_call_arg *arg,
++		struct qmi_service *service,
++		qmi_result_func_t func,
++		void *user_data,
++		qmi_destroy_func_t destroy)
++{
++	struct qmi_param *param = NULL;
++
++	param = qmi_param_new();
++	if (!param)
++		goto error;
++
++	if (arg->call_id_set) {
++		if (!qmi_param_append_uint8(
++					param,
++					0x1,
++					arg->call_id))
++			goto error;
++	}
++
++	if (qmi_service_send(service,
++			     0x22,
++			     param,
++			     func,
++			     user_data,
++			     destroy) > 0)
++		return 0;
++error:
++	g_free(param);
++	return 1;
++}
++
++
++enum parse_error qmi_voice_answer_call_parse(
++		struct qmi_result *qmi_result,
++		struct qmi_voice_answer_call_result *result)
++{
++	int err = NONE;
++
++	/* optional */
++	if (qmi_result_get_uint8(qmi_result, 0x10, &result->call_id))
++		result->call_id_set = 1;
++
++	return err;
++}
++
++enum parse_error qmi_voice_ind_call_status(
++		struct qmi_result *qmi_result,
++		struct qmi_voice_all_call_status_ind *result)
++{
++	int err = NONE;
++	int offset;
++	uint16_t len;
++	const struct qmi_voice_remote_party_number *remote_party_number;
++	const struct qmi_voice_call_information *call_information;
++
++	/* mandatory */
++	call_information = qmi_result_get(qmi_result, 0x01, &len);
++	if (call_information)
++	{
++		int instance_size = sizeof(struct qmi_voice_call_information_instance);
++		/* verify the length */
++		if (len < sizeof(call_information->size))
++			return INVALID_LENGTH;
++
++		if (len != call_information->size * sizeof(struct qmi_voice_call_information_instance)
++			    + sizeof(call_information->size))
++			return INVALID_LENGTH;
++		result->call_information_set = 1;
++		result->call_information = call_information;
++	} else
++		return MISSING_MANDATORY;
++
++	/* mandatory */
++	remote_party_number = qmi_result_get(qmi_result, 0x10, &len);
++	if (remote_party_number) {
++		const struct qmi_voice_remote_party_number_instance *instance;
++		int instance_size = sizeof(struct qmi_voice_remote_party_number_instance);
++		int i;
++
++		/* verify the length */
++		if (len < sizeof(remote_party_number->size))
++			return INVALID_LENGTH;
++
++		for (i = 0, offset = sizeof(remote_party_number->size);
++		     offset <= len && i < 16 && i < remote_party_number->size; i++)
++		{
++			if (offset == len) {
++				break;
++			} else if (offset + instance_size > len) {
++				return INVALID_LENGTH;
++			}
++
++			instance = (void *)remote_party_number + offset;
++			result->remote_party_number[i] = instance;
++			offset += sizeof(struct qmi_voice_remote_party_number_instance) + instance->number_size;
++		}
++		result->remote_party_number_set = 1;
++		result->remote_party_number_size = remote_party_number->size;
++	} else
++		return MISSING_MANDATORY;
++
++	return err;
++}
+diff -urN ofono-1.20/drivers/qmimodem/voice_generated.h ofono-1.20-patched/drivers/qmimodem/voice_generated.h
+--- ofono-1.20/drivers/qmimodem/voice_generated.h	1970-01-01 01:00:00.000000000 +0100
++++ ofono-1.20-patched/drivers/qmimodem/voice_generated.h	2017-07-27 01:53:56.000000000 +0200
+@@ -0,0 +1,113 @@
++
++#ifndef __OFONO_QMI_VOICE_GENERATED_H
++#define __OFONO_QMI_VOICE_GENERATED_H
++
++#include "qmi.h"
++
++struct qmi_voice_remote_party_number_instance {
++	uint8_t call_id;
++	uint8_t presentation_indicator;
++	uint8_t number_size;
++	char number[0];
++} __attribute__((__packed__));
++
++struct qmi_voice_remote_party_number {
++	uint8_t size;
++	struct qmi_voice_remote_party_number_instance instance[0];
++} __attribute__((__packed__));
++
++/* generator / parser */
++
++struct qmi_voice_dial_call_arg {
++	bool calling_number_set;
++	const char *calling_number;
++	bool call_type_set;
++	uint8_t call_type;
++};
++
++int qmi_voice_dial_call(
++		struct qmi_voice_dial_call_arg *arg,
++		struct qmi_service *service,
++		qmi_result_func_t func,
++		void *user_data,
++		qmi_destroy_func_t destroy);
++
++struct qmi_voice_dial_call_result {
++	bool call_id_set;
++	uint8_t call_id;
++};
++
++enum parse_error qmi_voice_dial_call_parse(
++		struct qmi_result *qmi_result,
++		struct qmi_voice_dial_call_result *result);
++
++struct qmi_voice_end_call_arg {
++	bool call_id_set;
++	uint8_t call_id;
++};
++
++int qmi_voice_end_call(
++		struct qmi_voice_end_call_arg *arg,
++		struct qmi_service *service,
++		qmi_result_func_t func,
++		void *user_data,
++		qmi_destroy_func_t destroy);
++
++struct qmi_voice_end_call_result {
++	bool call_id_set;
++	uint8_t call_id;
++};
++
++enum parse_error qmi_voice_end_call_parse(
++		struct qmi_result *qmi_result,
++		struct qmi_voice_end_call_result *result);
++
++struct qmi_voice_answer_call_arg {
++	bool call_id_set;
++	uint8_t call_id;
++};
++
++int qmi_voice_answer_call(
++		struct qmi_voice_answer_call_arg *arg,
++		struct qmi_service *service,
++		qmi_result_func_t func,
++		void *user_data,
++		qmi_destroy_func_t destroy);
++
++struct qmi_voice_answer_call_result {
++	bool call_id_set;
++	uint8_t call_id;
++};
++
++enum parse_error qmi_voice_answer_call_parse(
++		struct qmi_result *qmi_result,
++		struct qmi_voice_answer_call_result *result);
++
++struct qmi_voice_call_information_instance {
++	uint8_t id;
++	uint8_t state;
++	uint8_t type;
++	uint8_t direction;
++	uint8_t mode;
++	uint8_t multipart_indicator;
++	uint8_t als;
++} __attribute__((__packed__));
++
++struct qmi_voice_call_information {
++	uint8_t size;
++	struct qmi_voice_call_information_instance instance[0];
++} __attribute__((__packed__)) ;
++
++struct qmi_voice_all_call_status_ind {
++	bool call_information_set;
++	const struct qmi_voice_call_information *call_information;
++	bool remote_party_number_set;
++	uint8_t remote_party_number_size;
++	const struct qmi_voice_remote_party_number_instance *remote_party_number[16];
++};
++
++enum parse_error qmi_voice_ind_call_status(
++		struct qmi_result *qmi_result,
++		struct qmi_voice_all_call_status_ind *result);
++
++#endif /* __OFONO_QMI_VOICE_GENERATED_H */
+diff -urN ofono-1.20/drivers/qmimodem/voice.h ofono-1.20-patched/drivers/qmimodem/voice.h
+--- ofono-1.20/drivers/qmimodem/voice.h	1970-01-01 01:00:00.000000000 +0100
++++ ofono-1.20-patched/drivers/qmimodem/voice.h	2017-07-27 01:53:56.000000000 +0200
+@@ -0,0 +1,84 @@
++/*
++ *
++ *  oFono - Open Source Telephony
++ *
++ *  Copyright (C) 2017 Alexander Couzens <lynxis@fe80.eu>
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License version 2 as
++ *  published by the Free Software Foundation.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ */
++
++enum call_direction;
++
++enum ussd_dcs {
++	USS_DCS_ASCII = 0x1,
++	USS_DCS_8BIT,
++	USS_DCS_UCS2,
++};
++
++enum ussd_user_required {
++	NO_USER_ACTION_REQUIRED = 0x1,
++	USER_ACTION_REQUIRED = 0x2,
++};
++
++struct qmi_ussd_data {
++	uint8_t dcs;
++	uint8_t length;
++	uint8_t data[0];
++} __attribute__((__packed__));
++
++enum voice_commands {
++	QMI_VOICE_CANCEL_USSD = 0x3c,
++	QMI_VOICE_USSD_RELEASE_IND = 0x3d,
++	QMI_VOICE_USSD_IND = 0x3e,
++	QMI_VOICE_SUPS_IND = 0x42,
++	QMI_VOICE_ASYNC_ORIG_USSD = 0x43,
++};
++
++enum qmi_voice_call_state {
++	QMI_CALL_STATE_IDLE = 0x0,
++	QMI_CALL_STATE_ORIG,
++	QMI_CALL_STATE_INCOMING,
++	QMI_CALL_STATE_CONV,
++	QMI_CALL_STATE_CC_IN_PROG,
++	QMI_CALL_STATE_ALERTING,
++	QMI_CALL_STATE_HOLD,
++	QMI_CALL_STATE_WAITING,
++	QMI_CALL_STATE_DISCONNECTING,
++	QMI_CALL_STATE_END,
++	QMI_CALL_STATE_SETUP
++};
++
++enum qmi_voice_call_type {
++	QMI_CALL_TYPE_VOICE = 0x0,
++	QMI_CALL_TYPE_VOICE_FORCE,
++};
++
++const char *qmi_voice_call_state_name(enum qmi_voice_call_state value);
++uint8_t ofono_to_qmi_direction(enum call_direction ofono_direction);
++enum call_direction qmi_to_ofono_direction(uint8_t qmi_direction);
++int qmi_to_ofono_status(uint8_t status, int *ret);
++
++#define QMI_VOICE_IND_ALL_STATUS 0x2e
++
++#define QMI_VOICE_PARAM_USS_DATA 0x01
++
++#define QMI_VOICE_PARAM_ASYNC_USSD_ERROR 0x10
++#define QMI_VOICE_PARAM_ASYNC_USSD_FAILURE_CASE 0x11
++#define QMI_VOICE_PARAM_ASYNC_USSD_DATA 0x12
++
++#define QMI_VOICE_PARAM_USSD_IND_USER_ACTION 0x01
++#define QMI_VOICE_PARAM_USSD_IND_DATA 0x10
++#define QMI_VOICE_PARAM_USSD_IND_UCS2 0x11
++
++/* according to GSM TS 23.038 */
++#define USSD_DCS_8BIT 0xf4
++#define USSD_DCS_UCS2 0x48
++#define USSD_DCS_UNSPECIFIC 0x0f
+diff -urN ofono-1.20/drivers/qmimodem/wms.h ofono-1.20-patched/drivers/qmimodem/wms.h
+--- ofono-1.20/drivers/qmimodem/wms.h	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/qmimodem/wms.h	2017-07-27 01:53:56.000000000 +0200
+@@ -62,6 +62,7 @@
+ #define QMI_WMS_STORAGE_TYPE_UIM		0
+ #define QMI_WMS_STORAGE_TYPE_NV			1
+ #define QMI_WMS_STORAGE_TYPE_UNKNOWN		2
++#define QMI_WMS_STORAGE_TYPE_NONE		255
+ 
+ #define QMI_WMS_MESSAGE_MODE_GSMWCDMA		1
+ 
+diff -urN ofono-1.20/drivers/rilmodem/voicecall.c ofono-1.20-patched/drivers/rilmodem/voicecall.c
+--- ofono-1.20/drivers/rilmodem/voicecall.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/rilmodem/voicecall.c	2017-07-27 01:53:56.000000000 +0200
+@@ -117,20 +117,6 @@
+ 	ofono_voicecall_disconnected(vc, reqdata->id, reason, NULL);
+ }
+ 
+-static int call_compare(gconstpointer a, gconstpointer b)
+-{
+-	const struct ofono_call *ca = a;
+-	const struct ofono_call *cb = b;
+-
+-	if (ca->id < cb->id)
+-		return -1;
+-
+-	if (ca->id > cb->id)
+-		return 1;
+-
+-	return 0;
+-}
+-
+ static void clcc_poll_cb(struct ril_msg *message, gpointer user_data)
+ {
+ 	struct ofono_voicecall *vc = user_data;
+@@ -209,7 +195,7 @@
+ 			call->id, call->status, call->type,
+ 			call->phone_number.number, call->name);
+ 
+-		calls = g_slist_insert_sorted(calls, call, call_compare);
++		calls = g_slist_insert_sorted(calls, call, ofono_call_compare);
+ 	}
+ 
+ no_calls:
+diff -urN ofono-1.20/drivers/stemodem/voicecall.c ofono-1.20-patched/drivers/stemodem/voicecall.c
+--- ofono-1.20/drivers/stemodem/voicecall.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/stemodem/voicecall.c	2017-07-27 01:53:56.000000000 +0200
+@@ -128,7 +128,7 @@
+ 
+ 	call->clip_validity = clip;
+ 
+-	d->calls = g_slist_insert_sorted(d->calls, call, at_util_call_compare);
++	d->calls = g_slist_insert_sorted(d->calls, call, ofono_call_compare);
+ 
+ 	return call;
+ }
+@@ -462,7 +462,7 @@
+ 	 * If it doesn't exists we make a new one
+ 	 */
+ 	l = g_slist_find_custom(vd->calls, GUINT_TO_POINTER(id),
+-				at_util_call_compare_by_id);
++				ofono_call_compare_by_id);
+ 
+ 	if (l)
+ 		existing_call = l->data;
+diff -urN ofono-1.20/drivers/telitmodem/gprs-context-ncm.c ofono-1.20-patched/drivers/telitmodem/gprs-context-ncm.c
+--- ofono-1.20/drivers/telitmodem/gprs-context-ncm.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/drivers/telitmodem/gprs-context-ncm.c	2017-07-27 01:53:56.000000000 +0200
+@@ -267,7 +267,7 @@
+ {
+ 	struct ofono_gprs_context *gc = user_data;
+ 	struct gprs_context_data *gcd = ofono_gprs_context_get_data(gc);
+-	char buf[128];
++	char buf[384];
+ 
+ 	DBG("ok %d", ok);
+ 
+diff -urN ofono-1.20/gatchat/gatserver.c ofono-1.20-patched/gatchat/gatserver.c
+--- ofono-1.20/gatchat/gatserver.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/gatchat/gatserver.c	2017-07-27 01:53:56.000000000 +0200
+@@ -543,7 +543,7 @@
+ 						G_AT_SERVER_RESULT_ERROR);
+ 			return;
+ 		}
+-		/* intentional fallback here */
++		/* fall through */
+ 
+ 	case G_AT_SERVER_REQUEST_TYPE_COMMAND_ONLY:
+ 		/* default behavior on AT&F same as ATZ */
+diff -urN ofono-1.20/gatchat/ppp_ipcp.c ofono-1.20-patched/gatchat/ppp_ipcp.c
+--- ofono-1.20/gatchat/ppp_ipcp.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/gatchat/ppp_ipcp.c	2017-07-27 01:53:56.000000000 +0200
+@@ -401,9 +401,11 @@
+ 				break;
+ 
+ 			/*
+-			 * Fall through, reject IP_ADDRESS if peer sends
+-			 * us 0 (expecting us to provide its IP address)
++			 * Reject IP_ADDRESS if peer sends us 0 (expecting
++			 * us to provide its IP address)
+ 			 */
++
++			/* fall through */
+ 		default:
+ 			if (options == NULL) {
+ 				guint16 max_len = ntohs(packet->length) - 4;
+diff -urN ofono-1.20/gatchat/ppp_ipv6cp.c ofono-1.20-patched/gatchat/ppp_ipv6cp.c
+--- ofono-1.20/gatchat/ppp_ipv6cp.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/gatchat/ppp_ipv6cp.c	2017-07-27 01:53:56.000000000 +0200
+@@ -189,9 +189,12 @@
+ 
+ 			if (ipv6cp->peer_addr != 0)
+ 				break;
++
+ 			/*
+-			 * Fall through, reject zero Interface ID
++			 * Reject zero Interface ID
+ 			 */
++
++			/* fall through */
+ 		default:
+ 			if (options == NULL) {
+ 				guint16 max_len = ntohs(packet->length) - 4;
+diff -urN ofono-1.20/include/call-list.h ofono-1.20-patched/include/call-list.h
+--- ofono-1.20/include/call-list.h	1970-01-01 01:00:00.000000000 +0100
++++ ofono-1.20-patched/include/call-list.h	2017-07-27 01:53:56.000000000 +0200
+@@ -0,0 +1,38 @@
++/*
++ *
++ *  oFono - Open Source Telephony
++ *
++ *  Copyright (C) 2017 Alexander Couzens <lynxis@fe80.eu>
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License version 2 as
++ *  published by the Free Software Foundation.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ */
++
++#include <glib.h>
++
++struct ofono_voicecall;
++struct ofono_phone_number;
++
++/*
++ * Can be called by the driver in the dialing callback,
++ * when the new call id already known
++ */
++void ofono_call_list_dial_callback(struct ofono_voicecall *vc,
++				   GSList **call_list,
++				   const struct ofono_phone_number *ph,
++				   int call_id);
++
++/*
++ * Called with a list of known calls e.g. clcc.
++ * Call list will take ownership of all ofono call within the calls.
++ */
++void ofono_call_list_notify(struct ofono_voicecall *vc,
++			    GSList **call_list,
++			    GSList *calls);
+diff -urN ofono-1.20/include/voicecall.h ofono-1.20-patched/include/voicecall.h
+--- ofono-1.20/include/voicecall.h	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/include/voicecall.h	2017-07-27 01:53:56.000000000 +0200
+@@ -28,6 +28,7 @@
+ 
+ #include <ofono/types.h>
+ 
++struct ofono_modem;
+ struct ofono_voicecall;
+ 
+ typedef void (*ofono_voicecall_cb_t)(const struct ofono_error *error,
+diff -urN ofono-1.20/Makefile.am ofono-1.20-patched/Makefile.am
+--- ofono-1.20/Makefile.am	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/Makefile.am	2017-07-27 01:53:56.000000000 +0200
+@@ -22,7 +22,7 @@
+ 			include/private-network.h include/cdma-netreg.h \
+ 			include/cdma-provision.h include/handsfree.h \
+ 			include/handsfree-audio.h include/siri.h \
+-			include/netmon.h include/lte.h
++			include/netmon.h include/lte.h include/call-list.h
+ 
+ nodist_pkginclude_HEADERS = include/version.h
+ 
+@@ -216,7 +216,9 @@
+ 					drivers/qmimodem/wds.h \
+ 					drivers/qmimodem/pds.h \
+ 					drivers/qmimodem/common.h \
+-					drivers/qmimodem/wda.h
++					drivers/qmimodem/wda.h \
++					drivers/qmimodem/voice.h \
++					drivers/qmimodem/voice.c
+ 
+ builtin_modules += qmimodem
+ builtin_sources += $(qmi_sources) \
+@@ -225,6 +227,7 @@
+ 			drivers/qmimodem/qmimodem.c \
+ 			drivers/qmimodem/devinfo.c \
+ 			drivers/qmimodem/voicecall.c \
++			drivers/qmimodem/voice_generated.c \
+ 			drivers/qmimodem/network-registration.c \
+ 			drivers/qmimodem/sim-legacy.c \
+ 			drivers/qmimodem/sim.c \
+@@ -620,7 +623,7 @@
+ 			src/cdma-provision.c src/handsfree.c \
+ 			src/handsfree-audio.c src/bluetooth.h \
+ 			src/hfp.h src/siri.c \
+-			src/netmon.c src/lte.c
++			src/netmon.c src/lte.c src/call-list.c
+ 
+ src_ofonod_LDADD = gdbus/libgdbus-internal.la $(builtin_libadd) \
+ 			@GLIB_LIBS@ @DBUS_LIBS@ -ldl
+@@ -668,7 +671,8 @@
+ 			doc/telit-modem.txt \
+ 			doc/networkmonitor-api.txt \
+ 			doc/allowed-apns-api.txt \
+-			doc/lte-api.txt
++			doc/lte-api.txt \
++			doc/cinterion-hardware-monitor-api.txt
+ 
+ 
+ test_scripts = test/backtrace \
+@@ -793,7 +797,8 @@
+ 				unit/test-rilmodem-cs \
+ 				unit/test-rilmodem-sms \
+ 				unit/test-rilmodem-cb \
+-				unit/test-rilmodem-gprs
++				unit/test-rilmodem-gprs \
++				unit/test-call-list
+ 
+ noinst_PROGRAMS = $(unit_tests) \
+ 			unit/test-sms-root unit/test-mux unit/test-caif
+@@ -835,6 +840,12 @@
+ unit_test_sms_root_LDADD = @GLIB_LIBS@
+ unit_objects += $(unit_test_sms_root_OBJECTS)
+ 
++unit_test_call_list_SOURCES = \
++				     src/common.c src/util.c src/log.c \
++				     src/call-list.c unit/test-call-list.c
++unit_test_call_list_LDADD = @GLIB_LIBS@ -ldl
++unit_objects += $(unit_test_call_list_OBJECTS)
++
+ unit_test_mux_SOURCES = unit/test-mux.c $(gatchat_sources)
+ unit_test_mux_LDADD = @GLIB_LIBS@
+ unit_objects += $(unit_test_mux_OBJECTS)
+diff -urN ofono-1.20/plugins/allowed-apns.c ofono-1.20-patched/plugins/allowed-apns.c
+--- ofono-1.20/plugins/allowed-apns.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/plugins/allowed-apns.c	2017-07-27 01:53:56.000000000 +0200
+@@ -195,6 +195,7 @@
+ 
+ 	if (cond == OFONO_ATOM_WATCH_CONDITION_UNREGISTERED) {
+ 		if (ctx->simwatch_id) {
++			sim_state_watch(OFONO_SIM_STATE_NOT_PRESENT, data);
+ 			ofono_sim_remove_state_watch(ctx->sim, ctx->simwatch_id);
+ 			ctx->simwatch_id = 0;
+ 		}
+diff -urN ofono-1.20/plugins/gemalto.c ofono-1.20-patched/plugins/gemalto.c
+--- ofono-1.20/plugins/gemalto.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/plugins/gemalto.c	2017-07-27 01:53:56.000000000 +0200
+@@ -29,8 +29,12 @@
+ #include <glib.h>
+ #include <gatchat.h>
+ #include <gattty.h>
++#include <gdbus.h>
++
++#include "ofono.h"
+ 
+ #define OFONO_API_SUBJECT_TO_CHANGE
++#include <ofono/dbus.h>
+ #include <ofono/plugin.h>
+ #include <ofono/log.h>
+ #include <ofono/modem.h>
+@@ -46,7 +50,17 @@
+ #include <drivers/atmodem/atutil.h>
+ #include <drivers/atmodem/vendor.h>
+ 
++#define HARDWARE_MONITOR_INTERFACE OFONO_SERVICE ".cinterion.HardwareMonitor"
++
+ static const char *none_prefix[] = { NULL };
++static const char *sctm_prefix[] = { "^SCTM:", NULL };
++static const char *sbv_prefix[] = { "^SBV:", NULL };
++
++struct gemalto_hardware_monitor {
++	DBusMessage *msg;
++	int32_t temperature;
++	int32_t voltage;
++};
+ 
+ struct gemalto_data {
+ 	GAtChat *app;
+@@ -54,6 +68,7 @@
+ 	struct ofono_sim *sim;
+ 	gboolean have_sim;
+ 	struct at_util_sim_state_query *sim_state_query;
++	struct gemalto_hardware_monitor *hm;
+ };
+ 
+ static int gemalto_probe(struct ofono_modem *modem)
+@@ -142,6 +157,148 @@
+ 						NULL);
+ }
+ 
++static void gemalto_sctm_cb(gboolean ok, GAtResult *result, gpointer user_data)
++{
++	struct gemalto_data *data = user_data;
++	DBusMessage *reply;
++	GAtResultIter iter;
++	DBusMessageIter dbus_iter;
++	DBusMessageIter dbus_dict;
++
++	if (data->hm->msg == NULL)
++		return;
++
++	if (!ok)
++		goto error;
++
++	g_at_result_iter_init(&iter, result);
++
++	if (!g_at_result_iter_next(&iter, "^SCTM:"))
++		goto error;
++
++	if (!g_at_result_iter_skip_next(&iter))
++		goto error;
++
++	if (!g_at_result_iter_skip_next(&iter))
++		goto error;
++
++	if (!g_at_result_iter_next_number(&iter, &data->hm->temperature))
++		goto error;
++
++	reply = dbus_message_new_method_return(data->hm->msg);
++
++	dbus_message_iter_init_append(reply, &dbus_iter);
++
++	dbus_message_iter_open_container(&dbus_iter, DBUS_TYPE_ARRAY,
++			OFONO_PROPERTIES_ARRAY_SIGNATURE,
++			&dbus_dict);
++
++	ofono_dbus_dict_append(&dbus_dict, "Temperature",
++			DBUS_TYPE_INT32, &data->hm->temperature);
++
++	ofono_dbus_dict_append(&dbus_dict, "Voltage",
++			DBUS_TYPE_UINT32, &data->hm->voltage);
++
++	dbus_message_iter_close_container(&dbus_iter, &dbus_dict);
++
++	__ofono_dbus_pending_reply(&data->hm->msg, reply);
++
++	return;
++
++error:
++	__ofono_dbus_pending_reply(&data->hm->msg,
++			__ofono_error_failed(data->hm->msg));
++}
++
++static void gemalto_sbv_cb(gboolean ok, GAtResult *result, gpointer user_data)
++{
++	struct gemalto_data *data = user_data;
++	GAtResultIter iter;
++
++	if (!ok)
++		goto error;
++
++	g_at_result_iter_init(&iter, result);
++
++	if (!g_at_result_iter_next(&iter, "^SBV:"))
++		goto error;
++
++	if (!g_at_result_iter_next_number(&iter, &data->hm->voltage))
++		goto error;
++
++	if (g_at_chat_send(data->app, "AT^SCTM?", sctm_prefix, gemalto_sctm_cb,
++				data, NULL) > 0)
++		return;
++
++error:
++	__ofono_dbus_pending_reply(&data->hm->msg,
++			__ofono_error_failed(data->hm->msg));
++}
++
++static DBusMessage *hardware_monitor_get_statistics(DBusConnection *conn,
++							DBusMessage *msg,
++							void *user_data)
++{
++	struct gemalto_data *data = user_data;
++
++	DBG("");
++
++	if (data->hm->msg != NULL)
++		return __ofono_error_busy(msg);
++
++	if (!g_at_chat_send(data->app, "AT^SBV", sbv_prefix, gemalto_sbv_cb,
++			data, NULL))
++		return __ofono_error_failed(msg);
++
++	data->hm->msg = dbus_message_ref(msg);
++
++	return NULL;
++}
++
++static const GDBusMethodTable hardware_monitor_methods[] = {
++	{ GDBUS_ASYNC_METHOD("GetStatistics",
++			NULL, GDBUS_ARGS({ "Statistics", "a{sv}" }),
++			hardware_monitor_get_statistics) },
++	{}
++};
++
++static void hardware_monitor_cleanup(void *user_data)
++{
++	struct gemalto_data *data = user_data;
++	struct gemalto_hardware_monitor *hm = data->hm;
++
++	g_free(hm);
++}
++
++static int gemalto_hardware_monitor_enable(struct ofono_modem *modem)
++{
++	struct gemalto_data *data = ofono_modem_get_data(modem);
++	DBusConnection *conn = ofono_dbus_get_connection();
++	const char *path = ofono_modem_get_path(modem);
++
++	DBG("");
++
++	/* Enable temperature output */
++	g_at_chat_send(data->app, "AT^SCTM=0,1", none_prefix, NULL, NULL, NULL);
++
++	/* Create Hardware Monitor DBus interface */
++	data->hm = g_try_new0(struct gemalto_hardware_monitor, 1);
++	if (data->hm == NULL)
++		return -EIO;
++
++	if (!g_dbus_register_interface(conn, path, HARDWARE_MONITOR_INTERFACE,
++					hardware_monitor_methods, NULL, NULL,
++					data, hardware_monitor_cleanup)) {
++		ofono_error("Could not register %s interface under %s",
++					HARDWARE_MONITOR_INTERFACE, path);
++		g_free(data->hm);
++		return -EIO;
++	}
++
++	ofono_modem_add_interface(modem, HARDWARE_MONITOR_INTERFACE);
++	return 0;
++}
++
+ static int gemalto_enable(struct ofono_modem *modem)
+ {
+ 	struct gemalto_data *data = ofono_modem_get_data(modem);
+@@ -181,6 +338,8 @@
+ 	g_at_chat_send(data->app, "AT+CFUN=4", none_prefix,
+ 			cfun_enable, modem, NULL);
+ 
++	gemalto_hardware_monitor_enable(modem);
++
+ 	return -EINPROGRESS;
+ }
+ 
+@@ -203,12 +362,19 @@
+ static int gemalto_disable(struct ofono_modem *modem)
+ {
+ 	struct gemalto_data *data = ofono_modem_get_data(modem);
++	DBusConnection *conn = ofono_dbus_get_connection();
++	const char *path = ofono_modem_get_path(modem);
+ 
+ 	DBG("%p", modem);
+ 
+ 	g_at_chat_cancel_all(data->app);
+ 	g_at_chat_unregister_all(data->app);
+ 
++	if (g_dbus_unregister_interface(conn, path,
++				HARDWARE_MONITOR_INTERFACE))
++		ofono_modem_remove_interface(modem,
++				HARDWARE_MONITOR_INTERFACE);
++
+ 	/* Shutdown the modem */
+ 	g_at_chat_send(data->app, "AT^SMSO", none_prefix, gemalto_smso_cb,
+ 			modem, NULL);
+diff -urN ofono-1.20/plugins/gobi.c ofono-1.20-patched/plugins/gobi.c
+--- ofono-1.20/plugins/gobi.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/plugins/gobi.c	2017-07-27 01:53:56.000000000 +0200
+@@ -318,6 +318,16 @@
+ 						create_dms_cb, modem, NULL);
+ }
+ 
++static void sync_cb(void *user_data)
++{
++	struct ofono_modem *modem = user_data;
++	struct gobi_data *data = ofono_modem_get_data(modem);
++
++	DBG("modem in sync");
++
++	qmi_device_discover(data->device, discover_cb, modem, NULL);
++}
++
+ static int gobi_enable(struct ofono_modem *modem)
+ {
+ 	struct gobi_data *data = ofono_modem_get_data(modem);
+@@ -345,7 +355,7 @@
+ 
+ 	qmi_device_set_close_on_unref(data->device, true);
+ 
+-	qmi_device_discover(data->device, discover_cb, modem, NULL);
++	qmi_device_sync(data->device, sync_cb, modem);
+ 
+ 	return -EINPROGRESS;
+ }
+diff -urN ofono-1.20/plugins/ril_intel.c ofono-1.20-patched/plugins/ril_intel.c
+--- ofono-1.20/plugins/ril_intel.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/plugins/ril_intel.c	2017-07-27 01:53:56.000000000 +0200
+@@ -365,7 +365,7 @@
+ 	}
+ 
+ 	power_status = parcel_r_string(&rilp);
+-	if (power_status == NULL || power_status == '\0')
++	if (power_status == NULL || *power_status == '\0')
+ 		return;
+ 
+ 	enabled = strtol(power_status, &endptr, 10);
+diff -urN ofono-1.20/plugins/u8500.c ofono-1.20-patched/plugins/u8500.c
+--- ofono-1.20/plugins/u8500.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/plugins/u8500.c	2017-07-27 01:53:56.000000000 +0200
+@@ -127,6 +127,7 @@
+ 	case MCE_NORMAL:
+ 		if (isi->online_cbd)
+ 			report_online(isi, mce_state == MCE_NORMAL);
++		/* fall through */
+ 	default:
+ 		report_powered(modem, isi, TRUE);
+ 	}
+diff -urN ofono-1.20/plugins/ublox.c ofono-1.20-patched/plugins/ublox.c
+--- ofono-1.20/plugins/ublox.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/plugins/ublox.c	2017-07-27 01:53:56.000000000 +0200
+@@ -48,9 +48,9 @@
+ 
+ enum supported_models {
+ 	SARA_G270			= 1102,
+-	TOBYL2_COMPATIBLE_MODE 		= 1141,
+-	TOBYL2_MEDIUM_THROUGHPUT_MODE 	= 1143,
+-	TOBYL2_HIGH_THROUGHPUT_MODE 	= 1146,
++	TOBYL2_COMPATIBLE_MODE		= 1141,
++	TOBYL2_MEDIUM_THROUGHPUT_MODE	= 1143,
++	TOBYL2_HIGH_THROUGHPUT_MODE	= 1146,
+ };
+ 
+ struct ublox_data {
+@@ -178,6 +178,7 @@
+ 		break;
+ 	case TOBYL2_MEDIUM_THROUGHPUT_MODE:
+ 		DBG("low/medium throughtput profile unsupported");
++		break;
+ 	default:
+ 		DBG("unknown ublox model id %d", data->model_id);
+ 		return -EINVAL;
+diff -urN ofono-1.20/src/call-list.c ofono-1.20-patched/src/call-list.c
+--- ofono-1.20/src/call-list.c	1970-01-01 01:00:00.000000000 +0100
++++ ofono-1.20-patched/src/call-list.c	2017-07-27 01:53:56.000000000 +0200
+@@ -0,0 +1,114 @@
++/*
++ *
++ *  oFono - Open Source Telephony
++ *
++ *  Copyright (C) 2017 Alexander Couzens <lynxis@fe80.eu>
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License version 2 as
++ *  published by the Free Software Foundation.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ */
++
++#include <glib.h>
++
++#include "common.h"
++
++#include <ofono/types.h>
++#include <ofono/log.h>
++#include <ofono/voicecall.h>
++#include <ofono/call-list.h>
++
++#include <string.h>
++
++void ofono_call_list_dial_callback(struct ofono_voicecall *vc,
++				   GSList **call_list,
++				   const struct ofono_phone_number *ph,
++				   int call_id)
++{
++	GSList *list;
++	struct ofono_call *call;
++
++	/* list_notify could be triggered before this call back is handled */
++	list = g_slist_find_custom(*call_list,
++				   GINT_TO_POINTER(call_id),
++				   ofono_call_compare_by_id);
++
++	if (list && list->data) {
++		call = list->data;
++		DBG("Call id %d already known. In state %s(%d)",
++		    call_id, ofono_call_status_to_string(call->status),
++		    call->status);
++		return;
++	}
++
++	call = g_new0(struct ofono_call, 1);
++	call->id = call_id;
++
++	memcpy(&call->called_number, ph, sizeof(*ph));
++	call->direction = CALL_DIRECTION_MOBILE_ORIGINATED;
++	call->status = CALL_STATUS_DIALING;
++	call->type = 0; /* voice */
++
++	*call_list = g_slist_insert_sorted(*call_list,
++					    call,
++					    ofono_call_compare);
++	ofono_voicecall_notify(vc, call);
++}
++
++void ofono_call_list_notify(struct ofono_voicecall *vc,
++			    GSList **call_list,
++			    GSList *calls)
++{
++	GSList *old_calls = *call_list;
++	GSList *new_calls = calls;
++	struct ofono_call *new_call, *old_call;
++
++	while (old_calls || new_calls) {
++		old_call = old_calls ? old_calls->data : NULL;
++		new_call = new_calls ? new_calls->data : NULL;
++
++		/* we drop disconnected calls and treat them as not existent */
++		if (new_call && new_call->status == CALL_STATUS_DISCONNECTED) {
++			new_calls = new_calls->next;
++			calls = g_slist_remove(calls, new_call);
++			g_free(new_call);
++			continue;
++		}
++
++		if (old_call &&
++				(new_call == NULL ||
++				(new_call->id > old_call->id))) {
++			ofono_voicecall_disconnected(
++						vc,
++						old_call->id,
++						OFONO_DISCONNECT_REASON_UNKNOWN,
++						NULL);
++			old_calls = old_calls->next;
++		} else if (new_call &&
++			   (old_call == NULL ||
++			   (new_call->id < old_call->id))) {
++
++			/* new call, signal it */
++			if (new_call->type == 0)
++				ofono_voicecall_notify(vc, new_call);
++
++			new_calls = new_calls->next;
++		} else {
++			if (memcmp(new_call, old_call, sizeof(*new_call))
++					&& new_call->type == 0)
++				ofono_voicecall_notify(vc, new_call);
++
++			new_calls = new_calls->next;
++			old_calls = old_calls->next;
++		}
++	}
++
++	g_slist_free_full(*call_list, g_free);
++	*call_list = calls;
++}
+diff -urN ofono-1.20/src/common.c ofono-1.20-patched/src/common.c
+--- ofono-1.20/src/common.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/src/common.c	2017-07-27 01:53:56.000000000 +0200
+@@ -736,3 +736,63 @@
+ 	call->cnap_validity = CNAP_VALIDITY_NOT_AVAILABLE;
+ 	call->clip_validity = CLIP_VALIDITY_NOT_AVAILABLE;
+ }
++
++gint ofono_call_compare(gconstpointer a, gconstpointer b)
++{
++	const struct ofono_call *ca = a;
++	const struct ofono_call *cb = b;
++
++	if (ca->id < cb->id)
++		return -1;
++
++	if (ca->id > cb->id)
++		return 1;
++
++	return 0;
++}
++
++gint ofono_call_compare_by_status(gconstpointer a, gconstpointer b)
++{
++	const struct ofono_call *call = a;
++	int status = GPOINTER_TO_INT(b);
++
++	if (status != call->status)
++		return 1;
++
++	return 0;
++}
++
++gint ofono_call_compare_by_id(gconstpointer a, gconstpointer b)
++{
++	const struct ofono_call *call = a;
++	unsigned int id = GPOINTER_TO_UINT(b);
++
++	if (id < call->id)
++		return -1;
++
++	if (id > call->id)
++		return 1;
++
++	return 0;
++}
++
++const char *ofono_call_status_to_string(enum call_status status)
++{
++	switch (status) {
++	case CALL_STATUS_ACTIVE:
++		return "active";
++	case CALL_STATUS_HELD:
++		return "held";
++	case CALL_STATUS_DIALING:
++		return "dialing";
++	case CALL_STATUS_ALERTING:
++		return "alerting";
++	case CALL_STATUS_INCOMING:
++		return "incoming";
++	case CALL_STATUS_WAITING:
++		return "waiting";
++	case CALL_STATUS_DISCONNECTED:
++		return "disconnected";
++	}
++	return "unknown";
++}
+diff -urN ofono-1.20/src/common.h ofono-1.20-patched/src/common.h
+--- ofono-1.20/src/common.h	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/src/common.h	2017-07-27 01:53:56.000000000 +0200
+@@ -184,3 +184,8 @@
+ const char *packet_bearer_to_string(int bearer);
+ 
+ gboolean is_valid_apn(const char *apn);
++
++gint ofono_call_compare(gconstpointer a, gconstpointer b);
++gint ofono_call_compare_by_status(gconstpointer a, gconstpointer b);
++gint ofono_call_compare_by_id(gconstpointer a, gconstpointer b);
++const char *ofono_call_status_to_string(enum call_status status);
+diff -urN ofono-1.20/src/gprs.c ofono-1.20-patched/src/gprs.c
+--- ofono-1.20/src/gprs.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/src/gprs.c	2017-07-27 01:53:56.000000000 +0200
+@@ -2009,6 +2009,12 @@
+ 		return;
+ 	}
+ 
++	if (strlen(apn) > OFONO_GPRS_MAX_APN_LENGTH
++				|| is_valid_apn(apn) == FALSE) {
++		ofono_error("Context activated with an invalid APN");
++		return;
++	}
++
+ 	pri_ctx = find_usable_context(gprs, apn);
+ 
+ 	if (!pri_ctx) {
+@@ -2033,11 +2039,22 @@
+ 		ofono_warn("Context activated for driver that doesn't support "
+ 				"automatic context activation.");
+ 		release_context(pri_ctx);
++		return;
+ 	}
+ 
++	/*
++	 * We weren't able to find a context with a matching APN and allocated
++	 * a brand new one instead.  Set the APN accordingly
++	 */
+ 	if (strlen(pri_ctx->context.apn) == 0) {
+ 		DBusConnection *conn = ofono_dbus_get_connection();
+-		pri_set_apn(pri_ctx, conn, NULL, apn);
++
++		strcpy(pri_ctx->context.apn, apn);
++
++		ofono_dbus_signal_property_changed(conn, pri_ctx->path,
++					OFONO_CONNECTION_CONTEXT_INTERFACE,
++					"AccessPointName",
++					DBUS_TYPE_STRING, &apn);
+ 	}
+ 
+ 	/* Prevent ofono_gprs_status_notify from changing the 'attached'
+diff -urN ofono-1.20/src/network.c ofono-1.20-patched/src/network.c
+--- ofono-1.20/src/network.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/src/network.c	2017-07-27 01:53:56.000000000 +0200
+@@ -1348,8 +1348,8 @@
+ 	if (netreg == NULL)
+ 		return;
+ 
+-	DBG("%s status %d tech %d", __ofono_atom_get_path(netreg->atom),
+-							status, tech);
++	DBG("%s status %d tech %d lac %d ci %d",
++	    __ofono_atom_get_path(netreg->atom), status, tech, lac, ci);
+ 
+ 	if (netreg->status != status) {
+ 		struct ofono_modem *modem;
+@@ -1404,6 +1404,11 @@
+ 	if (info == NULL)
+ 		return;
+ 
++	DBG("net time %d-%02d-%02d %02d:%02d:%02d utcoff %d dst %d",
++	    info->year, info->mon, info->mday,
++	    info->hour, info->min, info->sec,
++	    info->utcoff, info->dst);
++
+ 	__ofono_nettime_info_received(modem, info);
+ }
+ 
+diff -urN ofono-1.20/src/phonebook.c ofono-1.20-patched/src/phonebook.c
+--- ofono-1.20/src/phonebook.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/src/phonebook.c	2017-07-27 01:53:56.000000000 +0200
+@@ -127,6 +127,7 @@
+ 		case ';':
+ 		case ',':
+ 			dest[j++] = '\\';
++			/* fall through */
+ 		default:
+ 			dest[j] = src[i];
+ 			break;
+diff -urN ofono-1.20/src/radio-settings.c ofono-1.20-patched/src/radio-settings.c
+--- ofono-1.20/src/radio-settings.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/src/radio-settings.c	2017-07-27 01:53:56.000000000 +0200
+@@ -856,9 +856,13 @@
+ 						"GsmBand", rs->band_gsm);
+ 	}
+ 
++	if (error) {
++		g_error_free(error);
++		error = NULL;
++	}
++
+ 	rs->pending_band_gsm = rs->band_gsm;
+ 
+-	error = NULL;
+ 	rs->band_umts = g_key_file_get_integer(rs->settings, SETTINGS_GROUP,
+ 					"UmtsBand", &error);
+ 
+@@ -868,9 +872,13 @@
+ 						"UmtsBand", rs->band_umts);
+ 	}
+ 
++	if (error) {
++		g_error_free(error);
++		error = NULL;
++	}
++
+ 	rs->pending_band_umts = rs->band_umts;
+ 
+-	error = NULL;
+ 	rs->mode = g_key_file_get_integer(rs->settings, SETTINGS_GROUP,
+ 					"TechnologyPreference", &error);
+ 
+@@ -880,6 +888,11 @@
+ 					"TechnologyPreference", rs->mode);
+ 	}
+ 
++	if (error) {
++		g_error_free(error);
++		error = NULL;
++	}
++
+ 	DBG("TechnologyPreference: %d", rs->mode);
+ 	DBG("GsmBand: %d", rs->band_gsm);
+ 	DBG("UmtsBand: %d", rs->band_umts);
+diff -urN ofono-1.20/src/simfs.c ofono-1.20-patched/src/simfs.c
+--- ofono-1.20/src/simfs.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/src/simfs.c	2017-07-27 01:53:56.000000000 +0200
+@@ -226,6 +226,9 @@
+ 		struct ofono_sim_context *context = l->data;
+ 		GSList *k;
+ 
++		if (context->file_watches == NULL)
++			continue;
++
+ 		for (k = context->file_watches->items; k; k = k->next) {
+ 			struct file_watch *w = k->data;
+ 			ofono_sim_file_changed_cb_t notify = w->item.notify;
+diff -urN ofono-1.20/src/stk.c ofono-1.20-patched/src/stk.c
+--- ofono-1.20/src/stk.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/src/stk.c	2017-07-27 01:53:56.000000000 +0200
+@@ -1443,8 +1443,10 @@
+ 	switch (duration->unit) {
+ 	case STK_DURATION_TYPE_MINUTES:
+ 		interval = (interval + 59) / 60;
++		break;
+ 	case STK_DURATION_TYPE_SECONDS:
+ 		interval = (interval + 9) / 10;
++		break;
+ 	case STK_DURATION_TYPE_SECOND_TENTHS:
+ 		break;
+ 	}
+diff -urN ofono-1.20/src/voicecall.c ofono-1.20-patched/src/voicecall.c
+--- ofono-1.20/src/voicecall.c	2017-05-05 08:21:12.000000000 +0200
++++ ofono-1.20-patched/src/voicecall.c	2017-07-27 01:53:56.000000000 +0200
+@@ -174,26 +174,6 @@
+ 	}
+ }
+ 
+-static const char *call_status_to_string(int status)
+-{
+-	switch (status) {
+-	case CALL_STATUS_ACTIVE:
+-		return "active";
+-	case CALL_STATUS_HELD:
+-		return "held";
+-	case CALL_STATUS_DIALING:
+-		return "dialing";
+-	case CALL_STATUS_ALERTING:
+-		return "alerting";
+-	case CALL_STATUS_INCOMING:
+-		return "incoming";
+-	case CALL_STATUS_WAITING:
+-		return "waiting";
+-	default:
+-		return "disconnected";
+-	}
+-}
+-
+ static const char *phone_and_clip_to_string(const struct ofono_phone_number *n,
+ 						int clip_validity)
+ {
+@@ -421,7 +401,7 @@
+ 	ofono_bool_t mpty;
+ 	dbus_bool_t emergency_call;
+ 
+-	status = call_status_to_string(call->status);
++	status = ofono_call_status_to_string(call->status);
+ 
+ 	ofono_dbus_dict_append(dict, "State", DBUS_TYPE_STRING, &status);
+ 
+@@ -562,10 +542,18 @@
+ 	if (vc->dial_req && vc->dial_req->call != v)
+ 		return __ofono_error_busy(msg);
+ 
+-	switch (call->status) {
+-	case CALL_STATUS_DISCONNECTED:
++	if (call->status == CALL_STATUS_DISCONNECTED)
+ 		return __ofono_error_failed(msg);
+ 
++	if (vc->driver->release_specific) {
++		vc->pending = dbus_message_ref(msg);
++		vc->driver->release_specific(vc, call->id,
++					     generic_callback, vc);
++
++		return NULL;
++	}
++
++	switch (call->status) {
+ 	case CALL_STATUS_INCOMING:
+ 		if (vc->driver->hangup_all == NULL &&
+ 				vc->driver->hangup_active == NULL)
+@@ -611,10 +599,11 @@
+ 		}
+ 
+ 		/*
+-		 * Fall through, we check if we have a single alerting,
+-		 * dialing or active call and try to hang it up with
+-		 * hangup_all or hangup_active
++		 * We check if we have a single alerting, dialing or activeo
++		 * call and try to hang it up with hangup_all or hangup_active
+ 		 */
++
++		/* fall through */
+ 	case CALL_STATUS_ACTIVE:
+ 		if (single_call == TRUE && vc->driver->hangup_all != NULL) {
+ 			vc->pending = dbus_message_ref(msg);
+@@ -634,14 +623,7 @@
+ 		break;
+ 	}
+ 
+-	if (vc->driver->release_specific == NULL)
+-		return __ofono_error_not_implemented(msg);
+-
+-	vc->pending = dbus_message_ref(msg);
+-	vc->driver->release_specific(vc, call->id,
+-					generic_callback, vc);
+-
+-	return NULL;
++	return __ofono_error_not_implemented(msg);
+ }
+ 
+ static DBusMessage *voicecall_answer(DBusConnection *conn,
+@@ -919,7 +901,7 @@
+ 
+ 	call->call->status = status;
+ 
+-	status_str = call_status_to_string(status);
++	status_str = ofono_call_status_to_string(status);
+ 	path = voicecall_build_path(call->vc, call->call);
+ 
+ 	ofono_dbus_signal_property_changed(conn, path,
+@@ -2269,9 +2251,10 @@
+ 	struct voicecall *v = NULL;
+ 	struct ofono_call *newcall;
+ 
+-	DBG("Got a voicecall event, status: %d, id: %u, number: %s"
+-			" called_number: %s, called_name %s", call->status,
+-			call->id, call->phone_number.number,
++	DBG("Got a voicecall event, status: %s (%d), id: %u, number: %s"
++			" called_number: %s, called_name %s",
++			ofono_call_status_to_string(call->status),
++			call->status, call->id, call->phone_number.number,
+ 			call->called_number.number, call->name);
+ 
+ 	l = g_slist_find_custom(vc->call_list, GUINT_TO_POINTER(call->id),
+diff -urN ofono-1.20/unit/test-call-list.c ofono-1.20-patched/unit/test-call-list.c
+--- ofono-1.20/unit/test-call-list.c	1970-01-01 01:00:00.000000000 +0100
++++ ofono-1.20-patched/unit/test-call-list.c	2017-07-27 01:53:56.000000000 +0200
+@@ -0,0 +1,237 @@
++/*
++ *
++ *  oFono - Open Source Telephony
++ *
++ *  Copyright (C) 2017 Alexander Couzens <lynxis@fe80.eu>
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License version 2 as
++ *  published by the Free Software Foundation.
++ *
++ *  This program is distributed in the hope that it will be useful,
++ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *  GNU General Public License for more details.
++ *
++ */
++
++
++#include <glib.h>
++#include <string.h>
++
++
++#include "../src/common.h"
++#include <ofono/types.h>
++#include <ofono/call-list.h>
++
++struct voicecall {
++};
++
++struct notified {
++	unsigned int id;
++	enum call_status status;
++};
++
++static struct notified notified_list[32];
++static int notified_idx;
++static int notified_check;
++
++void reset_notified(void)
++{
++	notified_idx = 0;
++	notified_check = 0;
++	memset(&notified_list, 0, sizeof(notified_list));
++}
++
++void ofono_voicecall_notify(struct ofono_voicecall *vc,
++				struct ofono_call *call)
++{
++	notified_list[notified_idx].id = call->id;
++	notified_list[notified_idx].status = call->status;
++	notified_idx++;
++}
++
++void ofono_voicecall_disconnected(struct ofono_voicecall *vc, int id,
++				enum ofono_disconnect_reason reason,
++				const struct ofono_error *error)
++{
++	notified_list[notified_idx].id = id;
++	notified_list[notified_idx].status = CALL_STATUS_DISCONNECTED;
++	notified_idx++;
++}
++
++static GSList *create_call(
++		GSList *calls,
++		unsigned int id,
++		enum call_status status,
++		enum call_direction direction)
++{
++	struct ofono_call *call = g_new0(struct ofono_call, 1);
++
++	call->id = id;
++	call->status = status;
++	call->direction = direction;
++
++	calls = g_slist_insert_sorted(calls, call, ofono_call_compare);
++
++	return calls;
++}
++
++static void assert_notified(unsigned int call_id, int call_status)
++{
++	g_assert(notified_idx >= notified_check);
++	g_assert(notified_list[notified_check].id == call_id);
++	g_assert(notified_list[notified_check].status == call_status);
++
++	notified_check++;
++}
++
++static void test_notify_disconnected(void)
++{
++	struct ofono_voicecall *vc = NULL;
++	struct ofono_phone_number ph;
++	GSList *call_list;
++	GSList *calls;
++
++	strcpy(ph.number, "004888123456");
++	ph.type = 0;
++
++	/* reset test */
++	reset_notified();
++	call_list = NULL;
++
++	/* fill disconnected call*/
++	calls = create_call(NULL, 1, CALL_STATUS_DISCONNECTED,
++			    CALL_DIRECTION_MOBILE_TERMINATED);
++	ofono_call_list_notify(vc, &call_list, calls);
++
++	/* incoming call */
++	calls = create_call(NULL, 1, CALL_STATUS_DISCONNECTED,
++			    CALL_DIRECTION_MOBILE_TERMINATED);
++	calls = create_call(calls, 1, CALL_STATUS_ALERTING,
++			   CALL_DIRECTION_MOBILE_TERMINATED);
++	ofono_call_list_notify(vc, &call_list, calls);
++
++	/* answer call */
++	calls = create_call(NULL, 1, CALL_STATUS_ACTIVE,
++			   CALL_DIRECTION_MOBILE_TERMINATED);
++	calls = create_call(calls, 1, CALL_STATUS_DISCONNECTED,
++			    CALL_DIRECTION_MOBILE_TERMINATED);
++	ofono_call_list_notify(vc, &call_list, calls);
++
++	/* another call waiting */
++	calls = create_call(NULL, 1, CALL_STATUS_DISCONNECTED,
++			    CALL_DIRECTION_MOBILE_TERMINATED);
++	calls = create_call(calls, 1, CALL_STATUS_ACTIVE,
++			   CALL_DIRECTION_MOBILE_TERMINATED);
++	calls = create_call(calls, 2, CALL_STATUS_DISCONNECTED,
++			    CALL_DIRECTION_MOBILE_TERMINATED);
++	calls = create_call(calls, 2, CALL_STATUS_WAITING,
++				   CALL_DIRECTION_MOBILE_TERMINATED);
++	calls = create_call(calls, 2, CALL_STATUS_DISCONNECTED,
++			    CALL_DIRECTION_MOBILE_TERMINATED);
++	ofono_call_list_notify(vc, &call_list, calls);
++
++	/* end all calls */
++	ofono_call_list_notify(vc, &call_list, NULL);
++
++	/* verify call history */
++	assert_notified(1, CALL_STATUS_ALERTING);
++	assert_notified(1, CALL_STATUS_ACTIVE);
++	assert_notified(2, CALL_STATUS_WAITING);
++	assert_notified(1, CALL_STATUS_DISCONNECTED);
++	assert_notified(2, CALL_STATUS_DISCONNECTED);
++
++	g_assert(notified_check == notified_idx);
++	g_slist_free_full(call_list, g_free);
++}
++
++static void test_notify(void)
++{
++	struct ofono_voicecall *vc = NULL;
++	struct ofono_phone_number ph;
++	GSList *call_list;
++	GSList *calls;
++
++	strcpy(ph.number, "004888123456");
++	ph.type = 0;
++
++	/* reset test */
++	reset_notified();
++	call_list = NULL;
++
++	/* incoming call */
++	calls = create_call(NULL, 1, CALL_STATUS_ALERTING,
++			   CALL_DIRECTION_MOBILE_TERMINATED);
++	ofono_call_list_notify(vc, &call_list, calls);
++
++	/* answer call */
++	calls = create_call(NULL, 1, CALL_STATUS_ACTIVE,
++			   CALL_DIRECTION_MOBILE_TERMINATED);
++	ofono_call_list_notify(vc, &call_list, calls);
++
++	/* another call waiting */
++	calls = create_call(NULL, 1, CALL_STATUS_ACTIVE,
++			   CALL_DIRECTION_MOBILE_TERMINATED);
++	calls = create_call(calls, 2, CALL_STATUS_WAITING,
++				   CALL_DIRECTION_MOBILE_TERMINATED);
++	ofono_call_list_notify(vc, &call_list, calls);
++
++	/* end all calls */
++	ofono_call_list_notify(vc, &call_list, NULL);
++
++	/* verify call history */
++	assert_notified(1, CALL_STATUS_ALERTING);
++	assert_notified(1, CALL_STATUS_ACTIVE);
++	assert_notified(2, CALL_STATUS_WAITING);
++	assert_notified(1, CALL_STATUS_DISCONNECTED);
++	assert_notified(2, CALL_STATUS_DISCONNECTED);
++
++	g_assert(notified_check == notified_idx);
++	g_slist_free_full(call_list, g_free);
++}
++
++static void test_dial_callback(void)
++{
++	struct ofono_voicecall *vc = NULL;
++	struct ofono_phone_number ph;
++	struct ofono_call *call;
++	GSList *call_list, *calls;
++
++	/* reset test */
++	reset_notified();
++	call_list = NULL;
++
++	strcpy(ph.number, "0099301234567890");
++	ph.type = 0;
++
++	/* check if a call gets added to the call_list */
++	ofono_call_list_dial_callback(vc, &call_list, &ph, 33);
++
++	call = call_list->data;
++	g_assert(strcmp(call->called_number.number, ph.number) == 0);
++	g_slist_free_full(call_list, g_free);
++
++	/* check when notify is faster than dial_callback */
++	call_list = NULL;
++	calls = create_call(NULL, 1, CALL_STATUS_DIALING,
++			   CALL_DIRECTION_MOBILE_ORIGINATED);
++	ofono_call_list_notify(vc, &call_list, calls);
++	ofono_call_list_dial_callback(vc, &call_list, &ph, 1);
++	call = call_list->data;
++	g_assert(call_list->next == NULL);
++	g_slist_free_full(call_list, g_free);
++
++	call_list = NULL;
++}
++
++int main(int argc, char **argv)
++{
++	g_test_init(&argc, &argv, NULL);
++
++	g_test_add_func("/test-call-list/test_notify", test_notify);
++	g_test_add_func("/test-call-list/test_notify_disconnected",
++			test_notify_disconnected);
++	g_test_add_func("/test-call-list/dial_callback", test_dial_callback);
++	return g_test_run();
++}

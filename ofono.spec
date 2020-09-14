@@ -1,19 +1,12 @@
 Name:    ofono
 Summary: Open Source Telephony
-Version: 1.31
-Release: 2
+Version: 1.20
+Release: 1
 License: GPLv2
 URL:     http://ofono.org/
 Source0: https://git.kernel.org/pub/scm/network/ofono/ofono.git/snapshot/ofono-%{version}.tar.gz
-# Based on https://raw.githubusercontent.com/sailfish-on-dontbeevil/ofono/master/ofono/0002-add-call-list-helper-to-manage-voice-call-lists.patch
-Patch0:  0002-add-call-list-helper-to-manage-voice-call-lists.patch
-Patch1:	 https://raw.githubusercontent.com/sailfish-on-dontbeevil/ofono/master/ofono/0003-call-compare-by-status.patch
-# Based on https://raw.githubusercontent.com/sailfish-on-dontbeevil/ofono/master/ofono/0004-call-compare-by-id.patch
-Patch2:  0004-call-compare-by-id.patch
-# Based on https://raw.githubusercontent.com/sailfish-on-dontbeevil/ofono/master/ofono/0006-create-glist-helper-ofono_call_compare.patch
-Patch3:  0006-create-glist-helper-ofono_call_compare.patch
-# Based on https://raw.githubusercontent.com/sailfish-on-dontbeevil/ofono/master/ofono/0001-qmimodem-implement-voice-calls.patch
-Patch4:  ofono-1.31-qmimodem-voicecall.patch
+# From voicecall branch of git://git.sysmocom.de/ofono
+Patch0: ofono-1.20-voicecall.patch
 BuildRequires: automake libtool
 BuildRequires: pkgconfig(ell)
 BuildRequires: pkgconfig(glib-2.0)
