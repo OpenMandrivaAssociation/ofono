@@ -1,7 +1,7 @@
 Name:    ofono
 Summary: Open Source Telephony
 Version: 1.31
-Release: 2
+Release: 3
 License: GPLv2
 URL:     http://ofono.org/
 Source0: https://git.kernel.org/pub/scm/network/ofono/ofono.git/snapshot/ofono-%{version}.tar.gz
