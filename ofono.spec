@@ -3,7 +3,7 @@ Summary: Open Source Telephony
 Version: 1.31
 Release: 4
 License: GPLv2
-URL:     http://ofono.org/
+URL:     https://ofono.org/
 Source0: https://git.kernel.org/pub/scm/network/ofono/ofono.git/snapshot/ofono-%{version}.tar.gz
 # Based on https://raw.githubusercontent.com/sailfish-on-dontbeevil/ofono/master/ofono/0002-add-call-list-helper-to-manage-voice-call-lists.patch
 Patch0:  0002-add-call-list-helper-to-manage-voice-call-lists.patch
